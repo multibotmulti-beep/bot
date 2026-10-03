@@ -1,0 +1,110 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model ApiCredential {
+  id           String   @id @default(uuid())
+  apiName      String   @unique
+  apiKey       String
+  apiSecret    String
+  targetUrl    String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  webhookLogs  WebhookLog[]
+
+  @@map("api_credentials")
+}
+
+model WebhookLog {
+  id           String        @id @default(uuid())
+  credentialId String
+  credential   ApiCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  event        String
+  payload      String        // JSON stringified payload
+  responseCode Int?
+  responseBody String?
+  status       String        // SUCCESS, FAILED
+  createdAt    DateTime      @default(now())
+
+  @@map("webhook_logs")
+}
+
+model BotProfile {
+  id          String   @id @default(uuid())
+  botId       String   @unique
+  name        String
+  description String?
+  type        String   @default("custom") // "demo", "custom", "system"
+  isPublic    Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules       BotRule[]
+  flows       BotFlow[]
+
+  @@map("bot_profiles")
+}
+
+model BotRule {
+  id              String      @id @default(uuid())
+  botProfileId    String?
+  botProfile      BotProfile? @relation(fields: [botProfileId], references: [id], onDelete: Cascade)
+  keyword         String
+  matchType       String      @default("exact") // exact, contains, default
+  responseMessage String
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@map("bot_rules")
+}
+
+model BotFlow {
+  id              String      @id @default(uuid())
+  botProfileId    String?
+  botProfile      BotProfile? @relation(fields: [botProfileId], references: [id], onDelete: Cascade)
+  parentId        String?
+  parent          BotFlow?    @relation("FlowHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children        BotFlow[]   @relation("FlowHierarchy")
+  name            String
+  triggerKeyword  String
+  flowType        String      // "menu" o "conversation"
+  content         String      // JSON con opciones
+  responseMessage String
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@map("bot_flows")
+}
+
+model BotSession {
+  senderPhone String   @id
+  activeBotId String   @default("admin")
+  wizardStep  Int      @default(0)
+  draftName   String?
+  draftStyle  String?
+  draftOptions String? // JSON con el árbol jerárquico MenuNode[]
+  draftPath   String?  // JSON con la ruta actual [0, 1]
+  currentParentFlowId String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("bot_sessions")
+}

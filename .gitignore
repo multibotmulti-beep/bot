@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.turbo/
+.env
+ngrok.log
+dist/
+build/
+.DS_Store
