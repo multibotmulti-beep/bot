@@ -13,7 +13,7 @@ interface MenuOption {
 
 export default function TestPanel() {
   const [botName, setBotName] = useState('Asistente Comercial Pro');
-  const [welcomeMessage, setWelcomeMessage] = useState('¡Hola! Bienvenido a nuestro asistente virtual. Por favor, responde con el número de la opción deseada:');
+  const [welcomeMessage, setWelcomeMessage] = useState('¡Hola! Bienvenido al asistente virtual. Responde con el número de la opción deseada:');
   
   // Sistema de menú numérico y submenús
   const [options, setOptions] = useState<MenuOption[]>([
@@ -26,16 +26,14 @@ export default function TestPanel() {
         { number: '2', label: '📦 Rastrear por Código de Envío', response: 'Por favor, ingresa tu código de seguimiento.' }
       ]
     },
-    { number: '2', label: '🛠️ Soporte técnico y garantías', response: 'Por favor, descríbenos brevemente el problema técnico o adjunta foto/video de tu garantía.' },
-    { number: '3', label: '💰 Ver catálogos y precios', response: 'Puedes ver nuestro catálogo actualizado y lista de precios en nuestra web o solicitar el PDF aquí.' },
-    { number: '4', label: '🕒 Horarios de atención y ubicación', response: 'Atendemos de lunes a viernes de 9:00 a 18:00 hrs. Estamos ubicados en Av. Principal #123.' },
+    { number: '2', label: '🛠️ Soporte técnico y garantías', response: 'Por favor, descríbenos brevemente el problema técnico o adjunta foto/video de garantía.' },
+    { number: '3', label: '💰 Ver catálogos y precios', response: 'Puedes ver nuestro catálogo actualizado y lista de precios en nuestra web.' },
+    { number: '4', label: '🕒 Horarios de atención y ubicación', response: 'Atendemos de lunes a viernes de 9:00 a 18:00 hrs.' },
     { number: '5', label: '👤 Hablar con un asesor humano', response: 'Derivando con un operador humano. En breve un asesor te atenderá...' },
   ]);
 
-  // Estados de navegación inline (Listado / Detalle sin modal)
+  // Estados de navegación inline
   const [activeParentNumber, setActiveParentNumber] = useState<string | null>(null);
-  const [selectedSubNumber, setSelectedSubNumber] = useState<string | null>(null);
-
   const [newLabel, setNewLabel] = useState('');
 
   // Generar texto completo del menú principal
@@ -62,11 +60,11 @@ export default function TestPanel() {
           { number: '2', label: '📦 Rastrear por Código de Envío', response: 'Por favor, ingresa tu código de seguimiento.' }
         ]
       },
-      { number: '2', label: '🛠️ Soporte técnico y garantías', response: 'Por favor, descríbenos brevemente el problema técnico o adjunta foto/video de tu garantía.' },
-      { number: '3', label: '💰 Ver catálogos y precios', response: 'Puedes ver nuestro catálogo actualizado y lista de precios en nuestra web o solicitar el PDF aquí.' },
-      { number: '4', label: '🕒 Horarios de atención y ubicación', response: 'Atendemos de lunes a viernes de 9:00 a 18:00 hrs. Estamos ubicados en Av. Principal #123.' },
+      { number: '2', label: '🛠️ Soporte técnico y garantías', response: 'Por favor, descríbenos brevemente el problema técnico o adjunta foto/video de garantía.' },
+      { number: '3', label: '💰 Ver catálogos y precios', response: 'Puedes ver nuestro catálogo actualizado y lista de precios en nuestra web.' },
+      { number: '4', label: '🕒 Horarios de atención y ubicación', response: 'Atendemos de lunes a viernes de 9:00 a 18:00 hrs.' },
       { number: '5', label: '👤 Hablar con un asesor humano', response: 'Derivando con un operador humano. En breve un asesor te atenderá...' },
-    ], '¡Hola! Bienvenido a nuestro asistente virtual. Por favor, responde con el número de la opción deseada:') },
+    ], '¡Hola! Bienvenido al asistente virtual. Responde con el número de la opción deseada:') },
   ]);
 
   const [chatParentNumber, setChatParentNumber] = useState<string | null>(null);
@@ -135,11 +133,52 @@ export default function TestPanel() {
         return opt;
       });
       setOptions(updatedOptions);
-      if (selectedSubNumber === number) {
-        setSelectedSubNumber(null);
-      }
       logger.info({ parent: activeParentNumber, number }, 'Opción de submenú eliminada y renumerada');
     }
+  };
+
+  const handleUpdateMainLabel = (number: string, newLabelText: string) => {
+    const updatedOptions = options.map((opt) => {
+      if (opt.number === number) {
+        return { ...opt, label: newLabelText, response: `Respuesta automática para ${newLabelText}` };
+      }
+      return opt;
+    });
+    setOptions(updatedOptions);
+    setChatLog([
+      { sender: 'bot', text: generateMenuText(updatedOptions, welcomeMessage) },
+    ]);
+    logger.info({ number, newLabelText }, 'Menú principal actualizado');
+  };
+
+  const handleUpdateParentResponse = (parentNumber: string, newResponseText: string) => {
+    const updatedOptions = options.map((opt) => {
+      if (opt.number === parentNumber) {
+        return { ...opt, response: newResponseText };
+      }
+      return opt;
+    });
+    setOptions(updatedOptions);
+    logger.info({ parentNumber, newResponseText }, 'Respuesta del menú principal/submenú actualizada');
+  };
+
+  const handleUpdateSubLabel = (subNumber: string, newLabelText: string) => {
+    if (!activeParentNumber) return;
+    const updatedOptions = options.map((opt) => {
+      if (opt.number === activeParentNumber) {
+        const subs = opt.subOptions || [];
+        const updatedSubs = subs.map((sub) => {
+          if (sub.number === subNumber) {
+            return { ...sub, label: newLabelText, response: `Respuesta automática para ${newLabelText}` };
+          }
+          return sub;
+        });
+        return { ...opt, subOptions: updatedSubs };
+      }
+      return opt;
+    });
+    setOptions(updatedOptions);
+    logger.info({ parent: activeParentNumber, subNumber, newLabelText }, 'Submenú actualizado');
   };
 
   const handleResetChat = () => {
@@ -218,16 +257,14 @@ export default function TestPanel() {
     logger.info({ number: opt.number }, 'Usuario seleccionó opción en simulador');
   };
 
-  // Objetos activos para navegación inline
   const activeParentOpt = activeParentNumber !== null ? options.find(o => o.number === activeParentNumber) : null;
   const currentSubList = activeParentOpt?.subOptions || [];
-  const selectedSubOpt = selectedSubNumber !== null ? currentSubList.find(s => s.number === selectedSubNumber) : null;
 
   return (
     <div style={{ padding: '8px 24px 24px 24px', textAlign: 'left' }}>
       <h1 style={{ marginTop: '8px', marginBottom: '8px' }}>Asistente de Menú Numérico y Submenús</h1>
       <p style={{ color: 'var(--color-text-muted)', marginBottom: '24px' }}>
-        Configura menús interactivos y submenús con navegación inline (Listado / Detalle) sin descripciones ni ventanas emergentes.
+        Configura menús y submenús editando directamente los textos y respuestas en tiempo real.
       </p>
 
       {/* Grid de Configuración y Simulador */}
@@ -238,7 +275,7 @@ export default function TestPanel() {
           gap: '24px',
         }}
       >
-        {/* Columna Izquierda: Editor con Navegación Inline (Listado / Detalle) */}
+        {/* Columna Izquierda: Editor Inline Editable */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Configuración General */}
           <div style={{ padding: '20px', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-soft)' }}>
@@ -273,78 +310,69 @@ export default function TestPanel() {
             </div>
           </div>
 
-          {/* Editor de Menú con Navegación Inline (Listado / Detalle) */}
+          {/* Editor de Menú Editable en Línea */}
           <div style={{ padding: '20px', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-soft)' }}>
-            {/* Cabecera dinámica según nivel */}
+            {/* Cabecera dinámica */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                 <Icon name="chat" style={{ width: '20px', height: '20px', color: 'var(--color-secondary)' }} />
                 <span>
                   {activeParentNumber === null 
                     ? '2. Menú Principal' 
-                    : selectedSubNumber === null 
-                      ? `Submenús de: [${activeParentOpt?.number}] ${activeParentOpt?.label}` 
-                      : `Detalle del Submenú`}
+                    : `Submenús de: [${activeParentOpt?.number}] ${activeParentOpt?.label}`}
                 </span>
               </h3>
               {activeParentNumber !== null && (
                 <button
-                  onClick={() => {
-                    if (selectedSubNumber !== null) {
-                      setSelectedSubNumber(null);
-                    } else {
-                      setActiveParentNumber(null);
-                    }
-                  }}
+                  onClick={() => setActiveParentNumber(null)}
                   style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
                 >
-                  {selectedSubNumber !== null ? '← Volver al listado' : '← Volver al Menú Principal'}
+                  ← Volver al Menú Principal
                 </button>
               )}
             </div>
             
             <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '16px' }}>
               {activeParentNumber === null 
-                ? 'Toca cualquier ítem del menú para entrar y gestionar sus submenús.' 
-                : selectedSubNumber === null 
-                  ? 'Toca un submenú para ver su detalle o agrega uno nuevo abajo.' 
-                  : 'Detalle e información del submenú seleccionado.'}
+                ? 'Edita cualquier texto directamente en su cuadro o haz clic en "Submenús" para entrar.' 
+                : 'Edita el mensaje de respuesta y los submenús de esta opción.'}
             </p>
 
-            {/* Nivel 1: Menú Principal */}
+            {/* Nivel 1: Menú Principal Editable */}
             {activeParentNumber === null && (
               <>
                 <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {options.map((opt) => (
                     <div
                       key={opt.number}
-                      onClick={() => {
-                        setActiveParentNumber(opt.number);
-                        setSelectedSubNumber(null);
-                      }}
                       style={{
-                        padding: '12px 14px',
+                        padding: '10px 14px',
                         borderRadius: 'var(--radius-md)',
                         backgroundColor: 'var(--color-background)',
                         border: '1px solid var(--color-border)',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        cursor: 'pointer',
-                        transition: 'border-color 0.2s',
+                        gap: '8px',
                       }}
                     >
-                      <div style={{ fontSize: '0.85rem', flex: 1 }}>
-                        <strong style={{ color: 'var(--color-primary)' }}>{opt.number}. {opt.label} (+)</strong>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--color-primary)', marginTop: '4px', fontWeight: 600 }}>
-                          Submenús anidados: {opt.subOptions?.length || 0} (Toca para entrar &rarr;)
-                        </div>
+                      <div style={{ fontSize: '0.85rem', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--color-primary)', minWidth: '16px' }}>{opt.number}.</span>
+                        <input
+                          type="text"
+                          value={opt.label}
+                          onChange={(e) => handleUpdateMainLabel(opt.number, e.target.value)}
+                          style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
+                        />
                       </div>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteOption(opt.number);
-                        }}
+                        onClick={() => setActiveParentNumber(opt.number)}
+                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', borderRadius: 'var(--radius-md)', padding: '8px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                      >
+                        Submenús ({opt.subOptions?.length || 0}) &rarr;
+                      </button>
+                      <button
+                        onClick={() => handleDeleteOption(opt.number)}
                         style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold', padding: '4px 8px' }}
                         title="Eliminar opción"
                       >
@@ -354,7 +382,7 @@ export default function TestPanel() {
                   ))}
                 </div>
 
-                {/* Formulario con un solo campo y botón Agregar debajo */}
+                {/* Formulario Agregar Ítem Principal */}
                 <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
                   <form onSubmit={handleAddOption} style={{ display: 'flex', gap: '8px' }}>
                     <input
@@ -375,9 +403,22 @@ export default function TestPanel() {
               </>
             )}
 
-            {/* Nivel 2: Listado de Submenús */}
-            {activeParentNumber !== null && selectedSubNumber === null && (
+            {/* Nivel 2: Listado de Submenús y Respuesta del Menú Editable */}
+            {activeParentNumber !== null && (
               <>
+                {/* Mensaje de respuesta editable al abrir este submenú */}
+                <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--color-background)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px', display: 'block' }}>
+                    Mensaje del bot al abrir este menú:
+                  </label>
+                  <textarea
+                    value={activeParentOpt?.response || ''}
+                    onChange={(e) => handleUpdateParentResponse(activeParentNumber, e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.85rem', resize: 'none', outline: 'none' }}
+                  />
+                </div>
+
                 <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {currentSubList.length === 0 ? (
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem', backgroundColor: 'var(--color-background)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--color-border)' }}>
@@ -387,29 +428,28 @@ export default function TestPanel() {
                     currentSubList.map((sub) => (
                       <div
                         key={sub.number}
-                        onClick={() => setSelectedSubNumber(sub.number)}
                         style={{
-                          padding: '12px 14px',
+                          padding: '10px 14px',
                           borderRadius: 'var(--radius-md)',
                           backgroundColor: 'var(--color-background)',
                           border: '1px solid var(--color-border)',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          cursor: 'pointer',
+                          gap: '8px',
                         }}
                       >
-                        <div style={{ fontSize: '0.85rem', flex: 1 }}>
-                          <strong style={{ color: 'var(--color-primary)' }}>{sub.number}. {sub.label}</strong>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--color-primary)', marginTop: '4px', fontWeight: 600 }}>
-                            Ver detalle (Toca aquí &rarr;)
-                          </div>
+                        <div style={{ fontSize: '0.85rem', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--color-primary)', minWidth: '16px' }}>{sub.number}.</span>
+                          <input
+                            type="text"
+                            value={sub.label}
+                            onChange={(e) => handleUpdateSubLabel(sub.number, e.target.value)}
+                            style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
+                          />
                         </div>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteOption(sub.number);
-                          }}
+                          onClick={() => handleDeleteOption(sub.number)}
                           style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold', padding: '4px 8px' }}
                           title="Eliminar submenú"
                         >
@@ -420,7 +460,7 @@ export default function TestPanel() {
                   )}
                 </div>
 
-                {/* Formulario con un solo campo y botón Agregar debajo */}
+                {/* Formulario Agregar Submenú */}
                 <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
                   <form onSubmit={handleAddOption} style={{ display: 'flex', gap: '8px' }}>
                     <input
@@ -439,28 +479,6 @@ export default function TestPanel() {
                   </form>
                 </div>
               </>
-            )}
-
-            {/* Nivel 3: Detalle del Submenú */}
-            {activeParentNumber !== null && selectedSubNumber !== null && selectedSubOpt && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
-                <div style={{ padding: '16px', backgroundColor: 'var(--color-background)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
-                    Número de Opción: [{selectedSubOpt.number}]
-                  </div>
-                  <h3 style={{ margin: 0, color: 'var(--color-primary)', fontSize: '1.05rem' }}>
-                    {selectedSubOpt.label}
-                  </h3>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-                    <button
-                      onClick={() => handleDeleteOption(selectedSubOpt.number)}
-                      style={{ padding: '8px 14px', backgroundColor: 'var(--color-error)', color: 'white', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
-                    >
-                      Eliminar este Submenú
-                    </button>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         </div>
