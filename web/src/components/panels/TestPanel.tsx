@@ -32,8 +32,9 @@ export default function TestPanel() {
     { number: '5', label: '👤 Hablar con un asesor humano', response: 'Derivando con un operador humano. En breve un asesor te atenderá...' },
   ]);
 
-  // Estados de navegación inline
+  // Estados de navegación inline y modo edición por ítem
   const [activeParentNumber, setActiveParentNumber] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
 
   // Generar texto completo del menú principal
@@ -264,7 +265,7 @@ export default function TestPanel() {
     <div style={{ padding: '8px 24px 24px 24px', textAlign: 'left' }}>
       <h1 style={{ marginTop: '8px', marginBottom: '8px' }}>Asistente de Menú Numérico y Submenús</h1>
       <p style={{ color: 'var(--color-text-muted)', marginBottom: '24px' }}>
-        Configura menús y submenús editando directamente los textos y respuestas en tiempo real.
+        Configura menús y submenús utilizando los botones de edición y borrado en cada ítem.
       </p>
 
       {/* Grid de Configuración y Simulador */}
@@ -275,7 +276,7 @@ export default function TestPanel() {
           gap: '24px',
         }}
       >
-        {/* Columna Izquierda: Editor Inline Editable */}
+        {/* Columna Izquierda: Editor con botones Editar y Borrar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Configuración General */}
           <div style={{ padding: '20px', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-soft)' }}>
@@ -310,7 +311,7 @@ export default function TestPanel() {
             </div>
           </div>
 
-          {/* Editor de Menú Editable en Línea */}
+          {/* Editor de Menú con botones Editar y Borrar */}
           <div style={{ padding: '20px', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-soft)' }}>
             {/* Cabecera dinámica */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -334,11 +335,11 @@ export default function TestPanel() {
             
             <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '16px' }}>
               {activeParentNumber === null 
-                ? 'Edita cualquier texto directamente en su cuadro o haz clic en "Submenús" para entrar.' 
-                : 'Edita el mensaje de respuesta y los submenús de esta opción.'}
+                ? 'Usa el botón "✏️ Editar" para modificar un ítem o "✕" para borrarlo.' 
+                : 'Usa el botón "✏️ Editar" en el submenú o "✕" para borrarlo.'}
             </p>
 
-            {/* Nivel 1: Menú Principal Editable */}
+            {/* Nivel 1: Menú Principal */}
             {activeParentNumber === null && (
               <>
                 <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -358,26 +359,40 @@ export default function TestPanel() {
                     >
                       <div style={{ fontSize: '0.85rem', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontWeight: 600, color: 'var(--color-primary)', minWidth: '16px' }}>{opt.number}.</span>
-                        <input
-                          type="text"
-                          value={opt.label}
-                          onChange={(e) => handleUpdateMainLabel(opt.number, e.target.value)}
-                          style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
-                        />
+                        {editingId === opt.number ? (
+                          <input
+                            type="text"
+                            value={opt.label}
+                            onChange={(e) => handleUpdateMainLabel(opt.number, e.target.value)}
+                            autoFocus
+                            style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
+                          />
+                        ) : (
+                          <span style={{ fontWeight: 600, color: 'var(--color-text)', flex: 1 }}>{opt.label}</span>
+                        )}
                       </div>
-                      <button
-                        onClick={() => setActiveParentNumber(opt.number)}
-                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', borderRadius: 'var(--radius-md)', padding: '8px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                      >
-                        Submenús ({opt.subOptions?.length || 0}) &rarr;
-                      </button>
-                      <button
-                        onClick={() => handleDeleteOption(opt.number)}
-                        style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold', padding: '4px 8px' }}
-                        title="Eliminar opción"
-                      >
-                        ✕
-                      </button>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          onClick={() => setActiveParentNumber(opt.number)}
+                          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                        >
+                          Submenús ({opt.subOptions?.length || 0}) &rarr;
+                        </button>
+                        <button
+                          onClick={() => setEditingId(editingId === opt.number ? null : opt.number)}
+                          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                        >
+                          {editingId === opt.number ? '✓ Listo' : '✏️ Editar'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteOption(opt.number)}
+                          style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold', padding: '4px 8px', fontSize: '1rem' }}
+                          title="Borrar opción"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -403,10 +418,9 @@ export default function TestPanel() {
               </>
             )}
 
-            {/* Nivel 2: Listado de Submenús y Respuesta del Menú Editable */}
+            {/* Nivel 2: Listado de Submenús */}
             {activeParentNumber !== null && (
               <>
-                {/* Mensaje de respuesta editable al abrir este submenú */}
                 <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--color-background)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px', display: 'block' }}>
                     Mensaje del bot al abrir este menú:
@@ -441,20 +455,34 @@ export default function TestPanel() {
                       >
                         <div style={{ fontSize: '0.85rem', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontWeight: 600, color: 'var(--color-primary)', minWidth: '16px' }}>{sub.number}.</span>
-                          <input
-                            type="text"
-                            value={sub.label}
-                            onChange={(e) => handleUpdateSubLabel(sub.number, e.target.value)}
-                            style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
-                          />
+                          {editingId === sub.number ? (
+                            <input
+                              type="text"
+                              value={sub.label}
+                              onChange={(e) => handleUpdateSubLabel(sub.number, e.target.value)}
+                              autoFocus
+                              style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
+                            />
+                          ) : (
+                            <span style={{ fontWeight: 600, color: 'var(--color-text)', flex: 1 }}>{sub.label}</span>
+                          )}
                         </div>
-                        <button
-                          onClick={() => handleDeleteOption(sub.number)}
-                          style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold', padding: '4px 8px' }}
-                          title="Eliminar submenú"
-                        >
-                          ✕
-                        </button>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button
+                            onClick={() => setEditingId(editingId === sub.number ? null : sub.number)}
+                            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                          >
+                            {editingId === sub.number ? '✓ Listo' : '✏️ Editar'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteOption(sub.number)}
+                            style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold', padding: '4px 8px', fontSize: '1rem' }}
+                            title="Borrar submenú"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
