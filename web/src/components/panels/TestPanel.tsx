@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import logger from '@/lib/logger';
 import Icon from '@/components/Icon';
+import { useUserSession } from '@/lib/userSession';
 
 interface MenuOption {
   number: string;
@@ -12,8 +13,51 @@ interface MenuOption {
 }
 
 export default function TestPanel() {
+  const { userPhone, isLoggedIn, logout } = useUserSession();
+  const [userBots, setUserBots] = useState<any[]>([]);
+
   const [botName, setBotName] = useState('Asistente Comercial Pro');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [welcomeMessage, setWelcomeMessage] = useState('¡Hola! Bienvenido al asistente virtual. Responde con el número de la opción deseada:');
+  
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Cargar bots del usuario si tiene sesión iniciada
+  useEffect(() => {
+    if (isLoggedIn && userPhone) {
+      setPhoneNumber(userPhone);
+      fetch(`http://localhost:4000/bot/profiles?phoneNumber=${encodeURIComponent(userPhone)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.data) {
+            setUserBots(data.data);
+            if (data.data.length > 0) {
+              const latest = data.data[0];
+              setBotName(latest.name);
+              const primaryFlow = latest.flows?.find((f: any) => f.triggerKeyword === 'menu');
+              if (primaryFlow) {
+                setWelcomeMessage(primaryFlow.responseMessage);
+                try {
+                  const parsedOptions = JSON.parse(primaryFlow.content);
+                  if (Array.isArray(parsedOptions) && parsedOptions.length > 0) {
+                    setOptions(
+                      parsedOptions.map((o: any, idx: number) => ({
+                        number: String(o.option || idx + 1),
+                        label: o.label,
+                        response: o.response || `Respuesta para ${o.label}`,
+                        subOptions: o.subOptions || [],
+                      }))
+                    );
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+        })
+        .catch((err) => logger.error({ err }, 'Error cargando bots del usuario'));
+    }
+  }, [isLoggedIn, userPhone]);
   
   // Sistema de menú numérico y submenús
   const [options, setOptions] = useState<MenuOption[]>([
@@ -182,6 +226,46 @@ export default function TestPanel() {
     logger.info({ parent: activeParentNumber, subNumber, newLabelText }, 'Submenú actualizado');
   };
 
+  const handleSaveBotToBackend = async () => {
+    const targetPhone = isLoggedIn && userPhone ? userPhone : phoneNumber;
+    if (!targetPhone.trim()) {
+      setSaveStatus('Error: Se requiere iniciar sesión con WhatsApp o ingresar un número de teléfono válido.');
+      return;
+    }
+    if (!botName.trim()) {
+      setSaveStatus('Error: El nombre del bot es obligatorio.');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveStatus(null);
+
+    try {
+      const response = await fetch('http://localhost:4000/bot/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: targetPhone.trim(),
+          name: botName.trim(),
+          welcomeMessage,
+          menuOptions: options.map(opt => ({ label: opt.label, option: opt.number, subOptions: opt.subOptions || [] })),
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSaveStatus(`¡Bot "${botName}" guardado con éxito para el número ${targetPhone}!\nID único: ${data.data.botId}`);
+        logger.info({ botId: data.data.botId, targetPhone }, 'Bot guardado en base de datos');
+      } else {
+        const errorMsg = data.error?.technicalMessage || data.error?.message || 'Error desconocido';
+        setSaveStatus(`Error al guardar: ${errorMsg}`);
+      }
+    } catch (err: any) {
+      setSaveStatus(`Error de conexión con el backend: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleResetChat = () => {
     setChatParentNumber(null);
     setChatLog([
@@ -264,9 +348,28 @@ export default function TestPanel() {
   return (
     <div style={{ padding: '8px 24px 24px 24px', textAlign: 'left' }}>
       <h1 style={{ marginTop: '8px', marginBottom: '8px' }}>Asistente de Menú Numérico y Submenús</h1>
-      <p style={{ color: 'var(--color-text-muted)', marginBottom: '24px' }}>
-        Configura menús y submenús utilizando los botones de edición y borrado en cada ítem.
+      <p style={{ color: 'var(--color-text-muted)', marginBottom: '16px' }}>
+        Diseña tus bots y pruébalos en tiempo real con el simulador interactivo.
       </p>
+
+      {/* Banner de Sesión de Usuario (WhatsApp Auth) */}
+      <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-lg)', backgroundColor: isLoggedIn ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', border: `1px solid ${isLoggedIn ? '#10b981' : '#ef4444'}`, marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)' }}>
+          {isLoggedIn ? (
+            <span>🟢 <strong>Sesión Iniciada por WhatsApp</strong> — Teléfono: <span style={{ color: 'var(--color-primary)' }}>{userPhone}</span> ({userBots.length} bots cargados de tu base de datos)</span>
+          ) : (
+            <span>🔴 <strong>Modo Anónimo</strong> — Puedes usar el simulador y diseñar bots libremente. Para guardar tus bots en la base de datos y cargar tus diseños guardados, inicia sesión enviando <strong>"1"</strong> al bot de WhatsApp y abriendo tu enlace mágico.</span>
+          )}
+        </div>
+        {isLoggedIn && (
+          <button
+            onClick={logout}
+            style={{ background: 'none', border: '1px solid var(--color-error)', color: 'var(--color-error)', borderRadius: '16px', padding: '6px 14px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Cerrar Sesión
+          </button>
+        )}
+      </div>
 
       {/* Grid de Configuración y Simulador */}
       <div
@@ -276,7 +379,7 @@ export default function TestPanel() {
           gap: '24px',
         }}
       >
-        {/* Columna Izquierda: Editor con botones Editar y Borrar */}
+        {/* Columna Izquierda: Editor */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Configuración General */}
           <div style={{ padding: '20px', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-soft)' }}>
@@ -285,6 +388,18 @@ export default function TestPanel() {
               <span>1. Configuración del Bot</span>
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
+              {!isLoggedIn && (
+                <div>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>Número de Teléfono (Modo Anónimo)</label>
+                  <input
+                    type="text"
+                    placeholder="ej: +5491112345678"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', marginTop: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)', color: 'var(--color-text)' }}
+                  />
+                </div>
+              )}
               <div>
                 <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>Nombre del Bot</label>
                 <input
@@ -308,10 +423,27 @@ export default function TestPanel() {
                   style={{ width: '100%', padding: '10px 12px', marginTop: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)', color: 'var(--color-text)', resize: 'none' }}
                 />
               </div>
+
+              {/* Botón Guardar en Backend */}
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={handleSaveBotToBackend}
+                  disabled={isSaving}
+                  style={{ width: '100%', padding: '12px', backgroundColor: isLoggedIn ? 'var(--color-primary)' : '#64748b', color: 'white', border: 'none', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer', opacity: isSaving ? 0.7 : 1 }}
+                >
+                  {isSaving ? 'Guardando en Base de Datos...' : isLoggedIn ? '💾 Guardar Bot en mi Base de Datos' : '🔒 Inicia sesión con WhatsApp para guardar en Base de Datos'}
+                </button>
+                {saveStatus && (
+                  <div style={{ marginTop: '8px', fontSize: '0.85rem', color: saveStatus.startsWith('Error') ? 'var(--color-error)' : '#2ecc71', whiteSpace: 'pre-line' }}>
+                    {saveStatus}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Editor de Menú con botones Editar y Borrar */}
+          {/* Editor de Menú */}
           <div style={{ padding: '20px', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-soft)' }}>
             {/* Cabecera dinámica */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -342,22 +474,22 @@ export default function TestPanel() {
             {/* Nivel 1: Menú Principal */}
             {activeParentNumber === null && (
               <>
-                <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {options.map((opt) => (
                     <div
                       key={opt.number}
                       style={{
-                        padding: '10px 14px',
+                        padding: '12px 14px',
                         borderRadius: 'var(--radius-md)',
                         backgroundColor: 'var(--color-background)',
                         border: '1px solid var(--color-border)',
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: '8px',
+                        flexDirection: 'column',
+                        gap: '10px',
                       }}
                     >
-                      <div style={{ fontSize: '0.85rem', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* Parte Superior: Título y número */}
+                      <div style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                         <span style={{ fontWeight: 600, color: 'var(--color-primary)', minWidth: '16px' }}>{opt.number}.</span>
                         {editingId === opt.number ? (
                           <input
@@ -365,14 +497,15 @@ export default function TestPanel() {
                             value={opt.label}
                             onChange={(e) => handleUpdateMainLabel(opt.number, e.target.value)}
                             autoFocus
-                            style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
+                            style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
                           />
                         ) : (
-                          <span style={{ fontWeight: 600, color: 'var(--color-text)', flex: 1 }}>{opt.label}</span>
+                          <span style={{ fontWeight: 600, color: 'var(--color-text)', flex: 1, wordBreak: 'break-word' }}>{opt.label}</span>
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {/* Parte Inferior: Botones que bajan ordenados en horizontal */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', width: '100%', flexWrap: 'wrap' }}>
                         <button
                           onClick={() => setActiveParentNumber(opt.number)}
                           style={{ background: 'var(--color-surface)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
@@ -433,7 +566,7 @@ export default function TestPanel() {
                   />
                 </div>
 
-                <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ marginTop: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {currentSubList.length === 0 ? (
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem', backgroundColor: 'var(--color-background)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--color-border)' }}>
                       No hay submenús creados. Agrega uno abajo.
@@ -443,17 +576,17 @@ export default function TestPanel() {
                       <div
                         key={sub.number}
                         style={{
-                          padding: '10px 14px',
+                          padding: '12px 14px',
                           borderRadius: 'var(--radius-md)',
                           backgroundColor: 'var(--color-background)',
                           border: '1px solid var(--color-border)',
                           display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '8px',
+                          flexDirection: 'column',
+                          gap: '10px',
                         }}
                       >
-                        <div style={{ fontSize: '0.85rem', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {/* Parte Superior: Título y número */}
+                        <div style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                           <span style={{ fontWeight: 600, color: 'var(--color-primary)', minWidth: '16px' }}>{sub.number}.</span>
                           {editingId === sub.number ? (
                             <input
@@ -461,14 +594,15 @@ export default function TestPanel() {
                               value={sub.label}
                               onChange={(e) => handleUpdateSubLabel(sub.number, e.target.value)}
                               autoFocus
-                              style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
+                              style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, outline: 'none' }}
                             />
                           ) : (
-                            <span style={{ fontWeight: 600, color: 'var(--color-text)', flex: 1 }}>{sub.label}</span>
+                            <span style={{ fontWeight: 600, color: 'var(--color-text)', flex: 1, wordBreak: 'break-word' }}>{sub.label}</span>
                           )}
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {/* Parte Inferior: Botones que bajan ordenados en horizontal */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', width: '100%', flexWrap: 'wrap' }}>
                           <button
                             onClick={() => setEditingId(editingId === sub.number ? null : sub.number)}
                             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap' }}

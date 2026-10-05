@@ -4,7 +4,7 @@ import { CredentialService } from './webhook';
 import { z } from 'zod';
 
 export const CreateBotProfileSchema = z.object({
-  botId: z.string().min(2, { message: 'El ID del bot es obligatorio (mínimo 2 caracteres)' }),
+  phoneNumber: z.string().regex(/^\+?[0-9]{8,15}$/, { message: 'El número de teléfono debe ser válido (8 a 15 dígitos)' }),
   name: z.string().min(1, { message: 'El nombre del bot es obligatorio' }),
   description: z.string().optional(),
   welcomeMessage: z.string().optional(),
@@ -37,9 +37,80 @@ export type CreateBotRuleDTO = z.infer<typeof CreateBotRuleSchema>;
 export type CreateBotFlowDTO = z.infer<typeof CreateBotFlowSchema>;
 
 export class BotProfileService {
-  static async getProfiles() {
-    logger.info('Obteniendo perfiles de bots');
+  // Almacén temporal en memoria para códigos OTP por número de teléfono
+  private static otpStore = new Map<string, { code: string; expiresAt: number }>();
+
+  // Almacén para autenticación sin contraseña por WhatsApp real
+  private static pendingAuthStore = new Map<string, { phoneNumber: string; expiresAt: number; verified: boolean }>();
+
+  static async initiateWhatsAppAuth(phoneNumber: string) {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 8) {
+      throw new Error('Número de teléfono inválido');
+    }
+    const token = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutos
+    this.pendingAuthStore.set(token, { phoneNumber: cleanPhone, expiresAt, verified: false });
+
+    // Detectar el número del bot
+    let botNumber = process.env.WHATSAPP_BOT_NUMBER || process.env.BOT_PHONE_NUMBER || '';
+    if (!botNumber) {
+      try {
+        const activeBot = await prisma.botProfile.findFirst({
+          where: { 
+            phoneNumber: { not: '' } 
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (activeBot && activeBot.phoneNumber) {
+          botNumber = activeBot.phoneNumber;
+        } else {
+          const defaultBot = await prisma.botProfile.findFirst({
+            orderBy: { createdAt: 'asc' }
+          });
+          if (defaultBot && defaultBot.phoneNumber) {
+            botNumber = defaultBot.phoneNumber;
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, 'Error al buscar número de bot en base de datos');
+      }
+    }
+
+    if (!botNumber) {
+      botNumber = '5493765376985'; // Número por defecto del bot
+    }
+
+    const cleanBotNumber = botNumber.replace(/[^0-9]/g, '');
+    const whatsappLink = cleanBotNumber 
+      ? `https://wa.me/${cleanBotNumber}?text=VERIFICAR_${token}`
+      : `https://wa.me/?text=VERIFICAR_${token}`;
+
+    logger.info({ cleanPhone, token, cleanBotNumber, whatsappLink }, 'Iniciando autenticación sin contraseña por WhatsApp con enlace directo al bot');
+    return {
+      success: true,
+      message: 'Token de inicio de sesión generado. Envía este código por WhatsApp al bot para verificar tu número.',
+      token,
+      whatsappLink,
+    };
+  }
+
+  static async checkWhatsAppAuthStatus(phoneNumber: string) {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    for (const [token, data] of this.pendingAuthStore.entries()) {
+      if (data.phoneNumber === cleanPhone && data.verified) {
+        this.pendingAuthStore.delete(token);
+        return { success: true, verified: true, message: 'Autenticación exitosa por WhatsApp' };
+      }
+    }
+    return { success: true, verified: false, message: 'Pendiente de verificación por WhatsApp' };
+  }
+
+  static async getProfiles(phoneNumber?: string) {
+    logger.info({ phoneNumber }, 'Obteniendo perfiles de bots');
+    const where = phoneNumber ? { phoneNumber: phoneNumber.trim() } : {};
     return await prisma.botProfile.findMany({
+      where,
       include: {
         rules: true,
         flows: true,
@@ -59,18 +130,69 @@ export class BotProfileService {
     });
   }
 
+  static async generateOtp(phoneNumber: string) {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 8) {
+      throw new Error('Número de teléfono inválido para generar OTP');
+    }
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutos
+    this.otpStore.set(cleanPhone, { code, expiresAt });
+    logger.info({ phoneNumber: cleanPhone, code }, 'OTP generado para validación de bot por teléfono');
+    return { success: true, message: 'Código OTP generado con éxito', code };
+  }
+
+  static async verifyOtp(phoneNumber: string, code: string) {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const entry = this.otpStore.get(cleanPhone);
+    if (!entry) {
+      throw new Error('No hay OTP pendiente para este número de teléfono');
+    }
+    if (Date.now() > entry.expiresAt) {
+      this.otpStore.delete(cleanPhone);
+      throw new Error('El código OTP ha expirado');
+    }
+    if (entry.code !== code.trim()) {
+      throw new Error('Código OTP incorrecto');
+    }
+    this.otpStore.delete(cleanPhone);
+    logger.info({ phoneNumber: cleanPhone }, 'OTP verificado exitosamente para el número');
+    return { success: true, message: 'OTP verificado correctamente' };
+  }
+
   static async createProfile(data: CreateBotProfileDTO) {
     const validated = CreateBotProfileSchema.parse(data);
-    logger.info({ botId: validated.botId, name: validated.name }, 'Creando perfil de bot personalizado');
+    logger.info({ phoneNumber: validated.phoneNumber, name: validated.name }, 'Creando o actualizando perfil de bot asociado a usuario');
 
-    const profile = await prisma.botProfile.create({
-      data: {
-        botId: validated.botId.toLowerCase().trim().replace(/\s+/g, '-'),
+    const botId = validated.phoneNumber.trim().replace(/[^0-9+]/g, '');
+    const cleanPhone = validated.phoneNumber.trim();
+
+    // Buscar o crear usuario asociado a este número de teléfono
+    const user = await prisma.user.upsert({
+      where: { phoneNumber: cleanPhone },
+      update: {},
+      create: { phoneNumber: cleanPhone, name: `Usuario ${cleanPhone}` },
+    });
+
+    const profile = await prisma.botProfile.upsert({
+      where: { botId },
+      update: {
         name: validated.name.trim(),
         description: validated.description,
         type: validated.type,
         isPublic: validated.isPublic,
         isActive: validated.isActive,
+        userId: user.id,
+      },
+      create: {
+        botId,
+        phoneNumber: cleanPhone,
+        name: validated.name.trim(),
+        description: validated.description,
+        type: validated.type,
+        isPublic: validated.isPublic,
+        isActive: validated.isActive,
+        userId: user.id,
       },
     });
 
@@ -122,11 +244,11 @@ export class BotProfileService {
           triggerKeyword: 'menu',
           flowType: 'menu',
           content: JSON.stringify([
-            { label: 'Ver Demos Disponibles', option: '1' },
-            { label: 'Crear mi Bot Personalizado', option: '2' },
-            { label: 'Menú Secreto (Admin & IDs)', option: '3' }
+            { label: '1. 🔑 Iniciar sesión', option: '1' },
+            { label: '2. 🤖 Ver un bot', option: '2' },
+            { label: '3. 👤 Hablar con un admin', option: '3' }
           ]),
-          responseMessage: '¡Bienvenido al Bot Admin Central! Elige una opción:',
+          responseMessage: '¡Bienvenido al Bot Oficial! Por favor selecciona una opción:',
           isActive: true,
         },
       });
@@ -284,6 +406,48 @@ export class BotService {
       const incomingText = message.text.body.trim().toLowerCase();
       let matchedResponse: string | null = null;
 
+      // Verificar si el mensaje contiene un token de autenticación por WhatsApp ("verificar_TOKEN")
+      if (incomingText.startsWith('verificar_') || incomingText.startsWith('verificar ')) {
+        const token = incomingText.replace('verificar_', '').replace('verificar ', '').trim();
+        const pendingAuth = BotProfileService['pendingAuthStore'].get(token);
+
+        if (pendingAuth) {
+          if (Date.now() > pendingAuth.expiresAt) {
+            BotProfileService['pendingAuthStore'].delete(token);
+            return { processed: true, response: 'El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.' };
+          }
+
+          // Validación estricta: el número que envió el mensaje DEBE ser idéntico al número que intenta registrarse/loguearse
+          const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+          const cleanTarget = pendingAuth.phoneNumber.replace(/[^0-9]/g, '');
+
+          if (cleanSender !== cleanTarget) {
+            logger.warn({ senderPhone, targetPhone: pendingAuth.phoneNumber }, 'Intento de suplantación de identidad detectado: el número remitente no coincide con el número objetivo');
+            return {
+              processed: true,
+              response: `❌ Error de Autenticación: El número de WhatsApp desde el que envías el mensaje (${senderPhone}) no coincide con el número que intentas registrar o loguear (${pendingAuth.phoneNumber}). No está permitido registrar a otros números.`,
+            };
+          }
+
+          // ¡Coinciden! Marcar autenticación como exitosa y registrar/asociar usuario
+          pendingAuth.verified = true;
+          BotProfileService['pendingAuthStore'].set(token, pendingAuth);
+
+          await prisma.user.upsert({
+            where: { phoneNumber: cleanSender },
+            update: {},
+            create: { phoneNumber: cleanSender, name: `Usuario ${cleanSender}` },
+          });
+
+          logger.info({ phoneNumber: senderPhone }, 'Autenticación por WhatsApp real verificada y usuario registrado en su propia cuenta');
+
+          return {
+            processed: true,
+            response: `✅ ¡Verificación exitosa! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes continuar en la web.`,
+          };
+        }
+      }
+
       // Gestión de sesión persistente por número de teléfono (senderPhone)
       let activeBotId = botId;
 
@@ -356,11 +520,45 @@ export class BotService {
               where: { senderPhone },
               data: { wizardStep: 0, draftName: null, draftStyle: null, draftOptions: null },
             });
-            matchedResponse = '¡Bienvenido al Bot Admin Central! Elige una opción:\n\n' +
-              '1. Ver Demos Disponibles\n' +
-              '2. Crear mi Bot Personalizado\n' +
-              '3. Menú Secreto (Admin & IDs)\n\n' +
+            matchedResponse = '¡Bienvenido al Bot Oficial! Por favor selecciona una opción:\n\n' +
+              '1. 🔑 Iniciar sesión\n' +
+              '2. 🤖 Ver un bot\n' +
+              '3. 👤 Hablar con un admin\n\n' +
               '0. ↩️ Volver';
+          } else if (session.wizardStep === 0) {
+            if (incomingText === '1' || incomingText === 'iniciar sesion' || incomingText === 'sesion') {
+              // 1. Detectar número que lo solicita y asegurar que el usuario existe (crea cuenta nueva si no tiene, o carga perfil guardado si ya existe)
+              const user = await prisma.user.upsert({
+                where: { phoneNumber: senderPhone },
+                update: {},
+                create: { phoneNumber: senderPhone, name: `Usuario ${senderPhone}` },
+              });
+
+              // 2. Generar token y link de acceso directo sin contraseña (magic link)
+              const token = Math.floor(100000 + Math.random() * 900000).toString();
+              BotProfileService['pendingAuthStore'].set(token, { phoneNumber: senderPhone, expiresAt: Date.now() + 15 * 60 * 1000, verified: true });
+
+              const loginUrl = `http://localhost:3000/login?phone=${encodeURIComponent(senderPhone)}&token=${token}`;
+              
+              matchedResponse = `🔑 *Inicio de Sesión / Registro Automático*\n\n` +
+                `Hola, hemos detectado tu número *${senderPhone}*.\n` +
+                `• Estado: Cuenta cargada y lista con tus datos guardados.\n\n` +
+                `Haz clic en el siguiente enlace para ingresar a tu panel de control sin contraseña:\n\n` +
+                `🔗 ${loginUrl}\n\n` +
+                `(Este enlace es válido por 15 minutos).`;
+            } else if (incomingText === '2' || incomingText === 'ver un bot' || incomingText === 'bot') {
+              const profiles = await prisma.botProfile.findMany({ where: { isActive: true, isPublic: true }, take: 5 });
+              const list = profiles.map(p => `• *${p.name}* (ID / Tel: \`${p.botId}\`)`).join('\n');
+              matchedResponse = `🤖 *Bots Disponibles en la Plataforma:*\n\n${list}\n\nEnvía el número o ID del bot que deseas consultar.`;
+            } else if (incomingText === '3' || incomingText === 'hablar con un admin' || incomingText === 'admin') {
+              matchedResponse = '👤 *Soporte y Administración:* Un asesor humano ha sido notificado y se pondrá en contacto contigo a la brevedad.';
+            } else {
+              matchedResponse = '¡Bienvenido al Bot Oficial! Por favor selecciona una opción:\n\n' +
+                '1. 🔑 Iniciar sesión\n' +
+                '2. 🤖 Ver un bot\n' +
+                '3. 👤 Hablar con un admin\n\n' +
+                '0. ↩️ Volver';
+            }
           } else if (session.wizardStep > 0) {
             // Máquina de estados del Asistente Guiado Iterativo con Sub-menús Infinitos
             if (session.wizardStep === 1) {

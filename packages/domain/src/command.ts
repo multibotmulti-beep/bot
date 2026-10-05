@@ -10,6 +10,31 @@ export const ExecuteCommandSchema = z.object({
 
 export type ExecuteCommandDTO = z.infer<typeof ExecuteCommandSchema>;
 
+/**
+ * Gestor nativo para determinar la URL base de la aplicación (Local vs Railway / Producción)
+ */
+function getSystemBaseUrl(customUrl?: string): string {
+  if (customUrl) {
+    return customUrl.replace(/\/$/, '');
+  }
+
+  // 1. Si está en Railway o producción con dominio público configurado
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    const domain = process.env.RAILWAY_PUBLIC_DOMAIN.startsWith('http')
+      ? process.env.RAILWAY_PUBLIC_DOMAIN
+      : `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+    return domain.replace(/\/$/, '');
+  }
+
+  if (process.env.PUBLIC_URL) {
+    return process.env.PUBLIC_URL.replace(/\/$/, '');
+  }
+
+  // 2. Entorno local por defecto
+  const port = process.env.PORT || '4000';
+  return `http://localhost:${port}`;
+}
+
 export class CommandExecutor {
   static async execute(data: ExecuteCommandDTO) {
     const parseResult = ExecuteCommandSchema.safeParse(data);
@@ -22,6 +47,7 @@ export class CommandExecutor {
 
     switch (validated.action) {
       case 'seed_data': {
+        const baseUrl = getSystemBaseUrl(validated.params.targetUrl);
         const user = await UserService.createUser({
           email: validated.params.email || `test-${Date.now()}@example.com`,
           name: validated.params.name || 'Usuario de Prueba API',
@@ -31,11 +57,11 @@ export class CommandExecutor {
           apiName: validated.params.apiName || 'mock-service-api',
           apiKey: validated.params.apiKey || 'key_test_12345',
           apiSecret: validated.params.apiSecret || 'secret_hmac_98765',
-          targetUrl: validated.params.targetUrl || 'http://localhost:4000/webhooks/test-receiver',
+          targetUrl: `${baseUrl}/webhooks/test-receiver`,
           isActive: true,
         });
 
-        return { message: 'Datos de prueba sembrados exitosamente', user, credential };
+        return { message: 'Datos de prueba sembrados exitosamente con pasarela nativa de webhooks', user, credential };
       }
 
       case 'create_user':
@@ -66,29 +92,21 @@ export class CommandExecutor {
         return await WhatsAppService.sendMessage(validated.params);
 
       case 'configure_whatsapp_environment': {
-        let tunnelUrl = validated.params.targetUrl;
-        if (!tunnelUrl) {
-          try {
-            const ngrok = await import('ngrok');
-            const token = validated.params.authtoken || '2pDWRl27a0mEwOx8GLZ4c8LSxCw_7Zt96Vc887JiSjiGg92gx';
-            await ngrok.authtoken(token);
-            tunnelUrl = await ngrok.connect({ addr: validated.params.port || 4000 });
-          } catch (e) {
-            tunnelUrl = 'http://localhost:4000';
-          }
-        }
+        const baseUrl = getSystemBaseUrl(validated.params.targetUrl);
 
         const credential = await CredentialService.createCredential({
           apiName: 'whatsapp',
           apiKey: validated.params.apiKey || 'wa_key_test_777',
           apiSecret: validated.params.apiSecret || 'wa_webhook_secret_hmac_2026',
-          targetUrl: `${tunnelUrl.replace(/\/$/, '')}/webhooks/test-receiver`,
+          targetUrl: `${baseUrl}/webhooks/whatsapp`,
           isActive: true,
         });
 
+        logger.info({ baseUrl, targetUrl: credential.targetUrl }, 'Entorno de WhatsApp configurado con pasarela nativa (sin ngrok)');
+
         return {
           success: true,
-          message: 'Entorno de WhatsApp API configurado y guardado en PostgreSQL exitosamente',
+          message: 'Entorno de WhatsApp API configurado exitosamente con pasarela nativa (local / Railway)',
           whatsappCredential: {
             apiName: credential.apiName,
             apiKey: credential.apiKey,
@@ -99,20 +117,15 @@ export class CommandExecutor {
         };
       }
 
+      case 'start_local_tunnel':
       case 'start_ngrok_tunnel': {
-        if (process.env.NODE_ENV === 'production') {
-          throw new Error('ngrok solo está permitido en entorno de desarrollo (dev). En producción se utiliza el sistema propio.');
-        }
-        try {
-          const ngrok = await import('ngrok');
-          const token = validated.params.authtoken || '2pDWRl27a0mEwOx8GLZ4c8LSxCw_7Zt96Vc887JiSjiGg92gx';
-          await ngrok.authtoken(token);
-          const port = validated.params.port || 4000;
-          const url = await ngrok.connect({ addr: port });
-          return { success: true, tunnelUrl: url, message: `Túnel ngrok iniciado exitosamente para desarrollo en puerto ${port}` };
-        } catch (err: any) {
-          return { success: false, error: err.message, message: 'No se pudo iniciar ngrok con el autotoken proporcionado.' };
-        }
+        const baseUrl = getSystemBaseUrl(validated.params.targetUrl);
+        logger.info({ baseUrl }, 'Iniciando pasarela de túnel nativo local/Railway');
+        return {
+          success: true,
+          tunnelUrl: baseUrl,
+          message: `Pasarela de webhooks nativa activa en ${baseUrl}. No se requiere ngrok.`,
+        };
       }
 
       case 'system_status':
@@ -124,7 +137,7 @@ export class CommandExecutor {
       }
 
       default:
-        throw new Error(`Acción o función desconocida: '${validated.action}'. Acciones válidas: seed_data, create_user, list_users, delete_user, create_credential, list_credentials, delete_credential, dispatch_webhook, list_webhook_logs, send_whatsapp, start_ngrok_tunnel, configure_whatsapp_environment, system_status, clear_webhook_logs`);
+        throw new Error(`Acción o función desconocida: '${validated.action}'. Acciones válidas: seed_data, create_user, list_users, delete_user, create_credential, list_credentials, delete_credential, dispatch_webhook, list_webhook_logs, send_whatsapp, start_local_tunnel, start_ngrok_tunnel, configure_whatsapp_environment, system_status, clear_webhook_logs`);
     }
   }
 }
