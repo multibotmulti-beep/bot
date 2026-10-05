@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format cjs --dts",
+    "build": "tsup src/index.ts --format cjs --dts --external @prisma/client",
     "start": "node dist/index.js",
     "lint": "eslint \"src/**/*.ts\""
   },
