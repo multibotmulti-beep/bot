@@ -1,19 +1,35 @@
 #!/bin/sh
 set -e
 
-echo "⏳ Esperando a que PostgreSQL esté listo..."
-until nc -z -v -w3 postgres 5432; do
-  echo "PostgreSQL no está disponible todavía - durmiendo..."
-  sleep 2
-done
+echo "=========================================================="
+echo "🚀 INICIANDO SISTEMA MULTIBOT UNIFICADO (API + WEB)"
+echo "=========================================================="
 
-echo "✅ PostgreSQL está listo."
+# 1. Si DATABASE_URL está definida, sincronizar Prisma con reintentos
+if [ -n "$DATABASE_URL" ]; then
+  echo "🔄 Sincronizando esquema de base de datos con PostgreSQL (Prisma)..."
+  RETRIES=30
+  until pnpm --filter database db:push || [ $RETRIES -eq 0 ]; do
+    echo "⏳ Base de datos no disponible aún, reintentando en 3 segundos... (Intentos restantes: $RETRIES)"
+    RETRIES=$((RETRIES - 1))
+    sleep 3
+  done
 
-echo "🔄 Aplicando esquema de base de datos con Prisma..."
-pnpm --filter database db:push || npx prisma db push --schema=packages/database/prisma/schema.prisma
+  if [ $RETRIES -eq 0 ]; then
+    echo "❌ Error: No se pudo conectar a la base de datos o sincronizar las tablas después de varios intentos."
+    exit 1
+  fi
+  echo "✅ ¡Base de datos sincronizada y tablas creadas/actualizadas correctamente!"
+fi
 
-echo "🌱 Sembrando datos iniciales y bots pre-cargados..."
-npx tsx scripts/seed-bot-rules.ts || node -e "console.log('Seed omitido')"
+# 2. Iniciar API Backend (Fastify) en puerto interno 4000
+echo "⚡ Arrancando API Backend en http://127.0.0.1:4000..."
+PORT=4000 node apps/api/dist/index.js &
 
-echo "🚀 Iniciando servidor de API en desarrollo..."
-exec pnpm --filter api dev
+# Esperar a que la API esté lista
+sleep 3
+
+# 3. Iniciar Frontend Web (Next.js) en el puerto asignado por Railway ($PORT o 3000)
+FRONTEND_PORT=${PORT:-3000}
+echo "🌐 Arrancando Frontend Web en puerto ${FRONTEND_PORT}..."
+exec pnpm --filter plantilla-web-paneles start -p ${FRONTEND_PORT} -H 0.0.0.0
