@@ -113,8 +113,11 @@ importers:
   packages/database:
     dependencies:
       '@prisma/client':
-        specifier: ^5.20.0
+        specifier: 5.22.0
         version: 5.22.0(prisma@5.22.0)
+      prisma:
+        specifier: 5.22.0
+        version: 5.22.0
     devDependencies:
       '@repo/config':
         specifier: workspace:*
@@ -125,9 +128,6 @@ importers:
       eslint:
         specifier: ^9.11.1
         version: 9.39.5(jiti@1.21.7)
-      prisma:
-        specifier: ^5.20.0
-        version: 5.22.0
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
