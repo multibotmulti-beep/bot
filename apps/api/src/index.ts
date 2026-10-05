@@ -147,7 +147,7 @@ server.post('/api/exec', {
       },
     },
   },
-}, async (request, reply) => {
+}, async (request, _reply) => {
   const result = await CommandExecutor.execute(request.body as any);
   return { success: true, data: result };
 });
@@ -191,7 +191,7 @@ server.post('/logs', {
     description: 'Recibe logs del cliente frontend o panel de control',
     tags: ['System'],
   },
-}, async (request, reply) => {
+}, async (request, _reply) => {
   const { level = 'info', message, meta = {} } = request.body as any;
   const logFn = (logger as any)[level] || logger.info;
   logFn.call(logger, meta, `[FRONTEND/PANEL] ${message}`);
