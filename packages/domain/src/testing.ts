@@ -15,7 +15,7 @@ export class TestingService {
         name: 'Usuario Demo Enterprise',
       });
     } catch (err: any) {
-      logger.info('El usuario demo ya existe o ya fue creado');
+      logger.info({ err }, 'El usuario demo ya existe o ya fue creado');
       const users = await UserService.getUsers();
       demoUser = users.find(u => u.email === 'demo@monorepo.local') || users[0];
     }
@@ -54,6 +54,7 @@ export class TestingService {
       dbLatencyMs = Date.now() - startTime;
     } catch (error) {
       dbStatus = 'DISCONNECTED';
+      logger.warn({ error }, 'Database ping check failed');
     }
 
     const [userCount, credentialCount, logCount] = await Promise.all([
@@ -71,58 +72,11 @@ export class TestingService {
         status: dbStatus,
         latencyMs: dbLatencyMs,
       },
-      metrics: {
+      stats: {
         users: userCount,
         credentials: credentialCount,
         webhookLogs: logCount,
       },
-      environment: process.env.NODE_ENV || 'development',
-    };
-  }
-
-  static async runDiagnostics() {
-    const results: Array<{ step: string; success: boolean; message: string; durationMs: number }> = [];
-
-    // Test 1: Database ping
-    const t1Start = Date.now();
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      results.push({ step: 'Database Ping', success: true, message: 'Conexión PostgreSQL OK', durationMs: Date.now() - t1Start });
-    } catch (e: any) {
-      results.push({ step: 'Database Ping', success: false, message: e.message, durationMs: Date.now() - t1Start });
-    }
-
-    // Test 2: User management
-    const t2Start = Date.now();
-    try {
-      const email = `diag-${Date.now()}@test.local`;
-      const user = await UserService.createUser({ email, name: 'Diag User' });
-      results.push({ step: 'User Creation', success: !!user.id, message: `Usuario creado con ID ${user.id}`, durationMs: Date.now() - t2Start });
-    } catch (e: any) {
-      results.push({ step: 'User Creation', success: false, message: e.message, durationMs: Date.now() - t2Start });
-    }
-
-    // Test 3: Credential management
-    const t3Start = Date.now();
-    try {
-      const apiName = `diag-api-${Date.now()}`;
-      const cred = await CredentialService.createCredential({
-        apiName,
-        apiKey: 'test-key',
-        apiSecret: 'test-secret',
-        targetUrl: 'http://localhost:4000/webhooks/test-receiver',
-      });
-      results.push({ step: 'Credential Creation', success: !!cred.id, message: `Credencial creada para ${apiName}`, durationMs: Date.now() - t3Start });
-    } catch (e: any) {
-      results.push({ step: 'Credential Creation', success: false, message: e.message, durationMs: Date.now() - t3Start });
-    }
-
-    const allPassed = results.every(r => r.success);
-    return {
-      success: allPassed,
-      summary: allPassed ? 'Todas las pruebas de diagnóstico pasaron correctamente.' : 'Algunas pruebas fallaron.',
-      steps: results,
-      timestamp: new Date().toISOString(),
     };
   }
 }

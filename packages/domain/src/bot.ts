@@ -528,11 +528,12 @@ export class BotService {
           } else if (session.wizardStep === 0) {
             if (incomingText === '1' || incomingText === 'iniciar sesion' || incomingText === 'sesion') {
               // 1. Detectar número que lo solicita y asegurar que el usuario existe (crea cuenta nueva si no tiene, o carga perfil guardado si ya existe)
-              const user = await prisma.user.upsert({
+              const _user = await prisma.user.upsert({
                 where: { phoneNumber: senderPhone },
                 update: {},
                 create: { phoneNumber: senderPhone, name: `Usuario ${senderPhone}` },
               });
+              logger.info({ userId: _user.id }, 'Usuario registrado o verificado para inicio de sesión');
 
               // 2. Generar token y link de acceso directo sin contraseña (magic link)
               const token = Math.floor(100000 + Math.random() * 900000).toString();
@@ -825,7 +826,9 @@ export class BotService {
                       });
                     }
                   }
-                } catch {}
+                } catch {
+                  // Ignorar error de parseo JSON
+                }
               }
 
               if (childFlow) {
