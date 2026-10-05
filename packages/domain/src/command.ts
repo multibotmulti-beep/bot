@@ -50,6 +50,7 @@ export class CommandExecutor {
         const baseUrl = getSystemBaseUrl(validated.params.targetUrl);
         const user = await UserService.createUser({
           email: validated.params.email || `test-${Date.now()}@example.com`,
+          phoneNumber: validated.params.phoneNumber || `+34600${Math.floor(100000 + Math.random() * 900000)}`,
           name: validated.params.name || 'Usuario de Prueba API',
         }).catch(() => null);
 
@@ -65,7 +66,7 @@ export class CommandExecutor {
       }
 
       case 'create_user':
-        return await UserService.createUser(validated.params);
+        return await UserService.createUser(validated.params as any);
 
       case 'list_users':
         return await UserService.getUsers();
@@ -74,7 +75,7 @@ export class CommandExecutor {
         return await UserService.deleteUser(validated.params.id);
 
       case 'create_credential':
-        return await CredentialService.createCredential(validated.params);
+        return await CredentialService.createCredential(validated.params as any);
 
       case 'list_credentials':
         return await CredentialService.listCredentials();
@@ -83,13 +84,13 @@ export class CommandExecutor {
         return await CredentialService.deleteCredential(validated.params.apiName);
 
       case 'dispatch_webhook':
-        return await WebhookService.dispatch(validated.params);
+        return await WebhookService.dispatch(validated.params as any);
 
       case 'list_webhook_logs':
         return await WebhookService.listLogs(validated.params.credentialId);
 
       case 'send_whatsapp':
-        return await WhatsAppService.sendMessage(validated.params);
+        return await WhatsAppService.sendMessage(validated.params as any);
 
       case 'configure_whatsapp_environment': {
         const baseUrl = getSystemBaseUrl(validated.params.targetUrl);

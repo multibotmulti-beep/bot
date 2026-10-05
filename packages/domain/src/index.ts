@@ -12,7 +12,8 @@ export * from './bot';
 
 // 1. Validaciones con Zod (Value Objects / DTOs)
 export const CreateUserSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional(),
+  phoneNumber: z.string().min(8),
   name: z.string().min(2).optional(),
 });
 
@@ -23,23 +24,24 @@ export class UserService {
   static async createUser(data: CreateUserDTO): Promise<User> {
     const validated = CreateUserSchema.parse(data);
     
-    logger.info({ email: validated.email }, 'Intentando crear usuario en el dominio');
+    logger.info({ phoneNumber: validated.phoneNumber }, 'Intentando crear usuario en el dominio');
 
     try {
       const existing = await prisma.user.findUnique({
-        where: { email: validated.email },
+        where: { phoneNumber: validated.phoneNumber },
       });
 
       if (existing) {
         throw new CredentialError(
-          `User with email ${validated.email} already exists`,
-          `Error de usuario: Ya existe un registro con el correo ${validated.email}`
+          `User with phone ${validated.phoneNumber} already exists`,
+          `Error de usuario: Ya existe un registro con el teléfono ${validated.phoneNumber}`
         );
       }
 
       const user = await prisma.user.create({
         data: {
           email: validated.email,
+          phoneNumber: validated.phoneNumber,
           name: validated.name,
         },
       });
