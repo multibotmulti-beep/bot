@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
@@ -12,6 +13,21 @@ const server = Fastify({
 // Registrar CORS para permitir peticiones desde el frontend o clientes externos
 server.register(cors, {
   origin: true,
+});
+
+// Configurar Rate Limiting para protección contra abusos y DoS
+server.register(fastifyRateLimit, {
+  global: true,
+  max: 120, // Máximo 120 peticiones por minuto por IP
+  timeWindow: '1 minute',
+  errorResponseBuilder: (_request, context) => ({
+    success: false,
+    error: {
+      code: 'RATE_LIMIT_EXCEEDED',
+      message: `Límite de solicitudes excedido (${context.max} peticiones permitidas por ${context.after}).`,
+      statusCode: 429,
+    },
+  }),
 });
 
 // ==========================================
@@ -416,11 +432,33 @@ server.get('/webhooks/whatsapp', {
   const mode = query['hub.mode'];
   const token = query['hub.verify_token'];
   const challenge = query['hub.challenge'];
+  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'wa_webhook_secret_hmac_2026';
 
-  if (mode === 'subscribe' && token === 'wa_webhook_secret_hmac_2026') {
+  if (mode === 'subscribe' && token === expectedToken) {
     logger.info('WhatsApp Webhook verificado correctamente por Meta');
     return reply.status(200).send(challenge);
   }
+  logger.warn({ mode, token, expectedToken }, 'Fallo en la verificación del webhook de WhatsApp');
+  return reply.status(403).send('Verificación fallida');
+});
+
+server.get('/webhooks/whatsapp/:botId', {
+  schema: {
+    description: 'Verificación de webhook de WhatsApp para bot específico (Meta)',
+    tags: ['Webhooks'],
+  },
+}, async (request, reply) => {
+  const query = request.query as any;
+  const mode = query['hub.mode'];
+  const token = query['hub.verify_token'];
+  const challenge = query['hub.challenge'];
+  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'wa_webhook_secret_hmac_2026';
+
+  if (mode === 'subscribe' && token === expectedToken) {
+    logger.info({ botId: (request.params as any).botId }, 'WhatsApp Webhook específico verificado correctamente por Meta');
+    return reply.status(200).send(challenge);
+  }
+  logger.warn({ mode, token, expectedToken }, 'Fallo en la verificación del webhook de WhatsApp específico');
   return reply.status(403).send('Verificación fallida');
 });
 
