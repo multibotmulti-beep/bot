@@ -13,6 +13,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/swagger": "^9.9.1",
     "@fastify/swagger-ui": "^6.1.1",
+    "@repo/database": "workspace:*",
     "@repo/domain": "workspace:*",
     "@repo/logger": "workspace:*",
     "fastify": "^5.0.0"
