@@ -33,7 +33,7 @@ COPY . .
 RUN pnpm --filter database db:generate
 RUN pnpm build
 
-# 3. Etapa de producción para API Backend
+# 3. Etapa de producción unificada (Base de Datos + API Backend + Web Frontend)
 FROM base AS api-runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -41,24 +41,11 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/api ./apps/api
+COPY --from=builder /app/web ./web
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/scripts ./scripts
 
 RUN chmod +x ./scripts/entrypoint.sh
 
-EXPOSE 4000
+EXPOSE 3000 4000
 ENTRYPOINT ["./scripts/entrypoint.sh"]
-
-# 4. Etapa de producción para Web Frontend (Next.js)
-FROM base AS web-runner
-WORKDIR /app
-ENV NODE_ENV=production
-ENV PORT=3000
-
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/web ./web
-COPY --from=builder /app/package.json ./package.json
-
-EXPOSE 3000
-CMD ["pnpm", "--filter", "plantilla-web-paneles", "start"]
