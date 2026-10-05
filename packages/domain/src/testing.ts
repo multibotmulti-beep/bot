@@ -12,6 +12,7 @@ export class TestingService {
     try {
       demoUser = await UserService.createUser({
         email: 'demo@monorepo.local',
+        phoneNumber: '+34600123456',
         name: 'Usuario Demo Enterprise',
       });
     } catch (err: any) {

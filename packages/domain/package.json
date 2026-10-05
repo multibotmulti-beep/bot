@@ -5,7 +5,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsup src/index.ts --format cjs --dts --external @prisma/client",
+    "build": "tsc",
     "lint": "eslint \"src/**/*.ts\""
   },
   "dependencies": {
@@ -19,7 +19,6 @@
     "@repo/eslint-config": "workspace:*",
     "@repo/logger": "workspace:*",
     "eslint": "^9.11.1",
-    "tsup": "^8.3.5",
     "typescript": "^5.6.3"
   }
 }
