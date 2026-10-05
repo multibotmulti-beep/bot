@@ -11,7 +11,7 @@ FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
-COPY apps/web/package.json ./apps/web/
+COPY web/package.json ./web/
 COPY packages/config/package.json ./packages/config/
 COPY packages/database/package.json ./packages/database/
 COPY packages/logger/package.json ./packages/logger/
@@ -25,6 +25,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps ./apps
+COPY --from=deps /app/web ./web
 COPY --from=deps /app/packages ./packages
 COPY . .
 
@@ -56,8 +57,8 @@ ENV PORT=3000
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/apps/web ./apps/web
+COPY --from=builder /app/web ./web
 COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
-CMD ["pnpm", "--filter", "web", "start"]
+CMD ["pnpm", "--filter", "plantilla-web-paneles", "start"]
