@@ -1,6 +1,8 @@
 import { prisma } from '@repo/database';
 import { logger } from '@repo/logger';
 import { CredentialService } from './webhook';
+import { ChatService } from './chat';
+import { AuthService } from './auth';
 import { z } from 'zod';
 
 export const CreateBotProfileSchema = z.object({
@@ -87,18 +89,28 @@ export class BotProfileService {
 
   static async checkWhatsAppAuthStatus(phoneNumber: string) {
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-    for (const [token, data] of this.pendingAuthStore.entries()) {
-      if (data.phoneNumber === cleanPhone && data.verified) {
-        this.pendingAuthStore.delete(token);
-        return { success: true, verified: true, message: 'Autenticación exitosa por WhatsApp' };
-      }
+    const user = await prisma.user.findUnique({
+      where: { phoneNumber: cleanPhone },
+    });
+    if (user) {
+      return { success: true, verified: true, message: 'Autenticación exitosa por WhatsApp' };
+    }
+    const session = await prisma.botSession.findUnique({
+      where: { senderPhone: cleanPhone },
+    });
+    if (session && session.loginToken === null) {
+      return { success: true, verified: true, message: 'Autenticación exitosa por WhatsApp' };
     }
     return { success: true, verified: false, message: 'Pendiente de verificación por WhatsApp' };
   }
 
   static async getProfiles(phoneNumber?: string) {
     logger.info({ phoneNumber }, 'Obteniendo perfiles de bots');
-    const where = phoneNumber ? { phoneNumber: phoneNumber.trim() } : {};
+    const isAdmin = AuthService.isAdmin(phoneNumber);
+    const where: any = {};
+    if (!isAdmin && phoneNumber) {
+      where.phoneNumber = phoneNumber.trim();
+    }
     return await prisma.botProfile.findMany({
       where,
       include: {
@@ -395,6 +407,14 @@ export class BotService {
       const senderPhone = message.from;
       const incomingText = message.text.body.trim().toLowerCase();
       let matchedResponse: string | null = null;
+
+      // Registrar mensaje entrante en el sistema de chat en tiempo real
+      await ChatService.saveMessage({
+        senderPhone,
+        botId: botId || 'admin',
+        direction: 'incoming',
+        message: message.text.body,
+      });
 
       // Verificar si el mensaje contiene un token de autenticación por WhatsApp ("verificar_TOKEN")
       if (incomingText.startsWith('verificar_') || incomingText.startsWith('verificar ')) {
@@ -908,6 +928,15 @@ export class BotService {
       if (!targetPhoneId) targetPhoneId = '880275461842101';
 
       const graphApiUrl = `https://graph.facebook.com/v17.0/${targetPhoneId}/messages`;
+
+      if (matchedResponse) {
+        await ChatService.saveMessage({
+          senderPhone,
+          botId: profile?.botId || 'admin',
+          direction: 'outgoing',
+          message: matchedResponse,
+        });
+      }
 
       const response = await fetch(graphApiUrl, {
         method: 'POST',

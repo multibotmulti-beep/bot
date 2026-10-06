@@ -4,7 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
-import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, CommandExecutor, AppError, mapPrismaError } from '@repo/domain';
+import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError } from '@repo/domain';
 
 const server = Fastify({
   logger: false, // Usamos nuestro logger centralizado de pino
@@ -258,6 +258,53 @@ server.post('/api/auth/check-whatsapp-status', {
 }, async (request) => {
   const { phoneNumber } = request.body as { phoneNumber: string };
   const result = await BotProfileService.checkWhatsAppAuthStatus(phoneNumber);
+  return { success: true, data: result };
+});
+
+// ==========================================
+// 1.6 SISTEMA DE CHAT EN TIEMPO REAL
+// ==========================================
+server.get('/api/chats', {
+  schema: {
+    description: 'Lista todas las conversaciones de chat activas agrupadas por número',
+    tags: ['Chat'],
+  },
+}, async (request) => {
+  const { phoneNumber } = request.query as { phoneNumber?: string };
+  const conversations = await ChatService.getConversations(phoneNumber);
+  return { success: true, data: conversations };
+});
+
+server.get('/api/chats/:senderPhone', {
+  schema: {
+    description: 'Obtiene el historial de mensajes de un número de teléfono específico',
+    tags: ['Chat'],
+  },
+}, async (request) => {
+  const { senderPhone } = request.params as { senderPhone: string };
+  const messages = await ChatService.getMessagesByPhone(senderPhone);
+  return { success: true, data: messages };
+});
+
+server.post('/api/chats/send', {
+  schema: {
+    description: 'Envía y registra un mensaje de respuesta a un número vía API de chat',
+    tags: ['Chat'],
+  },
+}, async (request) => {
+  const { senderPhone, message, botId } = request.body as { senderPhone: string; message: string; botId?: string };
+  const result = await ChatService.replyToUser(senderPhone, message, botId);
+  return { success: true, data: result };
+});
+
+server.delete('/api/chats/:senderPhone', {
+  schema: {
+    description: 'Elimina el historial de chat para un número de teléfono',
+    tags: ['Chat'],
+  },
+}, async (request) => {
+  const { senderPhone } = request.params as { senderPhone: string };
+  const result = await ChatService.deleteChat(senderPhone);
   return { success: true, data: result };
 });
 

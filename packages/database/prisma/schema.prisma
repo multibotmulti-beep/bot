@@ -115,3 +115,14 @@ model BotSession {
 
   @@map("bot_sessions")
 }
+
+model ChatMessage {
+  id          String   @id @default(uuid())
+  senderPhone String
+  botId       String   @default("admin")
+  direction   String   // "incoming" | "outgoing"
+  message     String
+  createdAt   DateTime @default(now())
+
+  @@map("chat_messages")
+}
