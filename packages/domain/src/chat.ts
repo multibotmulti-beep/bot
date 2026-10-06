@@ -27,6 +27,10 @@ export class ChatService {
   }
 
   static async getConversations(phoneNumber?: string) {
+    if (!phoneNumber || !phoneNumber.trim()) {
+      return []; // En modo anónimo o sin sesión, no se deben mostrar chats
+    }
+
     const isAdmin = AuthService.isAdmin(phoneNumber);
     let where: any = {};
 
