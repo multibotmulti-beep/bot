@@ -73,6 +73,26 @@ server.addHook('onRequest', async (request, reply) => {
   (request as any).traceId = traceId;
   (request as any).startTime = performance.now();
   reply.header('x-trace-id', traceId);
+
+  const method = request.method;
+  const url = request.url;
+
+  // Proteger rutas de mutación (POST, PUT, DELETE) en bots, flujos, reglas y capacidades
+  if (['POST', 'PUT', 'DELETE'].includes(method) && (url.includes('/bot') || url.includes('/capabilities'))) {
+    const apiKey = request.headers['x-api-key'] || (request.headers['authorization'] || '').replace('Bearer ', '');
+    const expectedKey = process.env.ADMIN_API_KEY || 'admin_secret_key_2026';
+
+    if (!apiKey || apiKey !== expectedKey) {
+      return reply.status(401).send({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED_ACCESS',
+          message: 'Acceso no autorizado: Se requiere una API Key de Administrador válida (header x-api-key o Authorization: Bearer <API_KEY>) para modificar perfiles, flujos, reglas o ejecutar capacidades protegidas.',
+          statusCode: 401,
+        }
+      });
+    }
+  }
 });
 
 server.addHook('onResponse', async (request, reply) => {
