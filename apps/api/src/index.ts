@@ -4,7 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
-import { UserService, CredentialService, WebhookService, BotService, BotProfileService, CommandExecutor, AppError, mapPrismaError } from '@repo/domain';
+import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, CommandExecutor, AppError, mapPrismaError } from '@repo/domain';
 
 const server = Fastify({
   logger: false, // Usamos nuestro logger centralizado de pino
@@ -212,6 +212,53 @@ server.post('/logs', {
   const logFn = (logger as any)[level] || logger.info;
   logFn.call(logger, meta, `[FRONTEND/PANEL] ${message}`);
   return { success: true };
+});
+
+// ==========================================
+// 1.5 AUTENTICACIÓN POR MAGIC LINK Y WHATSAPP
+// ==========================================
+server.post('/api/auth/request-link', {
+  schema: {
+    description: 'Genera un enlace mágico de inicio de sesión vinculado al número de teléfono de WhatsApp',
+    tags: ['Users'],
+  },
+}, async (request) => {
+  const { phoneNumber } = request.body as { phoneNumber: string };
+  const result = await AuthService.generateLoginLink(phoneNumber);
+  return { success: true, data: result };
+});
+
+server.post('/api/auth/verify-token', {
+  schema: {
+    description: 'Verifica el token de inicio de sesión para el número de teléfono especificado',
+    tags: ['Users'],
+  },
+}, async (request) => {
+  const { phoneNumber, token } = request.body as { phoneNumber: string, token: string };
+  const result = await AuthService.verifyLoginToken(phoneNumber, token);
+  return { success: true, data: result };
+});
+
+server.post('/api/auth/initiate-whatsapp', {
+  schema: {
+    description: 'Inicia el proceso de autenticación real por WhatsApp',
+    tags: ['Users'],
+  },
+}, async (request) => {
+  const { phoneNumber } = request.body as { phoneNumber: string };
+  const result = await BotProfileService.initiateWhatsAppAuth(phoneNumber);
+  return { success: true, data: result };
+});
+
+server.post('/api/auth/check-whatsapp-status', {
+  schema: {
+    description: 'Verifica el estado de autenticación real por WhatsApp',
+    tags: ['Users'],
+  },
+}, async (request) => {
+  const { phoneNumber } = request.body as { phoneNumber: string };
+  const result = await BotProfileService.checkWhatsAppAuthStatus(phoneNumber);
+  return { success: true, data: result };
 });
 
 // ==========================================

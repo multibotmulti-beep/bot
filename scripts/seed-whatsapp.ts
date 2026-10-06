@@ -15,11 +15,11 @@ async function seed() {
       apiName: 'whatsapp',
       apiKey: 'EAAWpnXQ6Y8UBSuStpAGsK92XgZBjq0MYsVhLAFEsWG0M9SJgdtZCq6gzCPIWDPaPtfPi8ZBaid36w9gIZAZAM5Vl8ZBZABw08H6KEzlVsndbFBZAwdtJkz9in83bBZBs7UBDIZAJzWISUbtPDduVNmpbcJZBFvhSjD9AAwh2VXqhhyiC4u64uEDbePY0z1c9wH6WAZDZD',
       apiSecret: 'waba_id_2706891212982443_phone_id_880275461842101',
-      targetUrl: 'https://unmended-modestly-ephraim.ngrok-free.dev/webhooks/whatsapp',
+      targetUrl: 'https://bot-production-a37a.up.railway.app/webhooks/whatsapp',
       isActive: true,
     });
 
-    console.log('¡URL de ngrok para webhooks de WhatsApp configurada exitosamente!', credential);
+    console.log('¡Credenciales de WhatsApp Business configuradas exitosamente con la URL de Railway!', credential);
   } catch (err) {
     console.error('Error al configurar credenciales:', err);
     process.exit(1);

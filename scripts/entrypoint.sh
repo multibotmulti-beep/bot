@@ -20,6 +20,10 @@ if [ -n "$DATABASE_URL" ]; then
     exit 1
   fi
   echo "✅ ¡Base de datos sincronizada y tablas creadas/actualizadas correctamente!"
+
+  echo "🌱 Ejecutando siembra de credenciales de WhatsApp y reglas de bots..."
+  npx tsx scripts/seed-whatsapp.ts || echo "⚠ Advertencia: No se pudo ejecutar seed-whatsapp"
+  npx tsx scripts/seed-bot-rules.ts || echo "⚠ Advertencia: No se pudo ejecutar seed-bot-rules"
 fi
 
 # 2. Iniciar API Backend (Fastify) en puerto interno 4000

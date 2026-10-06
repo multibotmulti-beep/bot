@@ -101,15 +101,17 @@ model BotFlow {
 }
 
 model BotSession {
-  senderPhone         String   @id
-  activeBotId         String   @default("admin")
-  wizardStep          Int      @default(0)
+  senderPhone         String    @id
+  activeBotId         String    @default("admin")
+  wizardStep          Int       @default(0)
   draftName           String?
   draftStyle          String?
   draftOptions        String?
   draftPath           String?
   currentParentFlowId String?
-  updatedAt           DateTime @updatedAt
+  loginToken          String?
+  loginTokenExpires   DateTime?
+  updatedAt           DateTime  @updatedAt
 
   @@map("bot_sessions")
 }

@@ -52,33 +52,23 @@ export class BotProfileService {
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutos
     this.pendingAuthStore.set(token, { phoneNumber: cleanPhone, expiresAt, verified: false });
 
-    // Detectar el número del bot
+    // Detectar el número oficial del bot
     let botNumber = process.env.WHATSAPP_BOT_NUMBER || process.env.BOT_PHONE_NUMBER || '';
     if (!botNumber) {
       try {
-        const activeBot = await prisma.botProfile.findFirst({
-          where: { 
-            phoneNumber: { not: '' } 
-          },
-          orderBy: { createdAt: 'desc' }
+        const adminBot = await prisma.botProfile.findUnique({
+          where: { botId: 'admin' },
         });
-        if (activeBot && activeBot.phoneNumber) {
-          botNumber = activeBot.phoneNumber;
-        } else {
-          const defaultBot = await prisma.botProfile.findFirst({
-            orderBy: { createdAt: 'asc' }
-          });
-          if (defaultBot && defaultBot.phoneNumber) {
-            botNumber = defaultBot.phoneNumber;
-          }
+        if (adminBot && adminBot.phoneNumber) {
+          botNumber = adminBot.phoneNumber;
         }
       } catch (err) {
-        logger.error({ err }, 'Error al buscar número de bot en base de datos');
+        logger.error({ err }, 'Error al buscar número del bot admin en base de datos');
       }
     }
 
     if (!botNumber) {
-      botNumber = '5493765376985'; // Número por defecto del bot
+      botNumber = '5493765376985'; // Número por defecto oficial del bot
     }
 
     const cleanBotNumber = botNumber.replace(/[^0-9]/g, '');
@@ -409,29 +399,36 @@ export class BotService {
       // Verificar si el mensaje contiene un token de autenticación por WhatsApp ("verificar_TOKEN")
       if (incomingText.startsWith('verificar_') || incomingText.startsWith('verificar ')) {
         const token = incomingText.replace('verificar_', '').replace('verificar ', '').trim();
-        const pendingAuth = BotProfileService['pendingAuthStore'].get(token);
+        const cleanSender = senderPhone.replace(/[^0-9]/g, '');
 
-        if (pendingAuth) {
-          if (Date.now() > pendingAuth.expiresAt) {
-            BotProfileService['pendingAuthStore'].delete(token);
-            return { processed: true, response: 'El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.' };
+        // Buscar sesión en la base de datos por loginToken
+        const session = await prisma.botSession.findFirst({
+          where: { loginToken: token },
+        });
+
+        if (session) {
+          if (session.loginTokenExpires && session.loginTokenExpires < new Date()) {
+            return { processed: true, response: '⏳ El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.' };
           }
 
-          // Validación estricta: el número que envió el mensaje DEBE ser idéntico al número que intenta registrarse/loguearse
-          const cleanSender = senderPhone.replace(/[^0-9]/g, '');
-          const cleanTarget = pendingAuth.phoneNumber.replace(/[^0-9]/g, '');
+          const cleanTarget = session.senderPhone.replace(/[^0-9]/g, '');
 
           if (cleanSender !== cleanTarget) {
-            logger.warn({ senderPhone, targetPhone: pendingAuth.phoneNumber }, 'Intento de suplantación de identidad detectado: el número remitente no coincide con el número objetivo');
+            logger.warn({ senderPhone, targetPhone: session.senderPhone }, 'Intento de suplantación detectado en webhook de WhatsApp');
             return {
               processed: true,
-              response: `❌ Error de Autenticación: El número de WhatsApp desde el que envías el mensaje (${senderPhone}) no coincide con el número que intentas registrar o loguear (${pendingAuth.phoneNumber}). No está permitido registrar a otros números.`,
+              response: `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token (${session.senderPhone}). Otro número no puede iniciar sesión por ti.`,
             };
           }
 
-          // ¡Coinciden! Marcar autenticación como exitosa y registrar/asociar usuario
-          pendingAuth.verified = true;
-          BotProfileService['pendingAuthStore'].set(token, pendingAuth);
+          // ¡Verificación exitosa en BD! Consumir el token
+          await prisma.botSession.update({
+            where: { senderPhone: session.senderPhone },
+            data: {
+              loginToken: null,
+              loginTokenExpires: null,
+            },
+          });
 
           await prisma.user.upsert({
             where: { phoneNumber: cleanSender },
@@ -439,11 +436,11 @@ export class BotService {
             create: { phoneNumber: cleanSender, name: `Usuario ${cleanSender}` },
           });
 
-          logger.info({ phoneNumber: senderPhone }, 'Autenticación por WhatsApp real verificada y usuario registrado en su propia cuenta');
+          logger.info({ phoneNumber: senderPhone }, 'Autenticación por WhatsApp verificada en BD y sesión autorizada');
 
           return {
             processed: true,
-            response: `✅ ¡Verificación exitosa! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes continuar en la web.`,
+            response: `✅ ¡Verificación exitosa en WhatsApp! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes regresar a la web.`,
           };
         }
       }

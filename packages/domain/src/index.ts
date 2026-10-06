@@ -3,12 +3,13 @@ import { prisma, User } from '@repo/database';
 import { logger } from '@repo/logger';
 import { DatabaseError, CredentialError } from './errors';
 
-// Exportar todo el sistema de webhooks, credenciales, comandos, whatsapp y errores
+// Exportar todo el sistema de webhooks, credenciales, comandos, whatsapp, auth y errores
 export * from './webhook';
 export * from './errors';
 export * from './command';
 export * from './whatsapp';
 export * from './bot';
+export * from './auth';
 
 // 1. Validaciones con Zod (Value Objects / DTOs)
 export const CreateUserSchema = z.object({
