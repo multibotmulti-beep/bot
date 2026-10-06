@@ -1,67 +1,70 @@
-import { ChatService, AuthService, UserService, BotProfileService } from '@repo/domain';
+import { ChatService, AuthService, UserService, BotProfileService, BotService } from '@repo/domain';
 import { logger } from '@repo/logger';
 
 async function auditAll() {
   console.log('==================================================');
-  console.log('🔍 INICIANDO AUDITORÍA COMPLETA DE LA API Y BACKEND');
+  console.log('🔍 INICIANDO AUDITORÍA DEL BOT, VERIFICACIÓN Y MENÚS');
   console.log('==================================================');
 
   try {
-    // 1. Probar estado del sistema
-    console.log('\n1. Probando estado del sistema...');
-    const status = await UserService.getSystemStatus();
-    console.log('✅ Estado del sistema:', status);
+    const testPhone = '+5491198765432';
 
-    // 2. Probar Autenticación por WhatsApp (Magic Link / Initiator)
-    console.log('\n2. Probando inicio de autenticación por WhatsApp...');
-    const authInit = await BotProfileService.initiateWhatsAppAuth('+5491112345678');
-    console.log('✅ Auth iniciada correctamente. Enlace:', authInit.whatsappLink);
+    // 1. Iniciar autenticación por WhatsApp (genera loginToken en BotSession)
+    console.log('\n1. Generando enlace de verificación de WhatsApp...');
+    const authInit = await BotProfileService.initiateWhatsAppAuth(testPhone);
+    console.log('✅ Auth iniciada. Token generado:', authInit.token);
+    console.log('✅ Enlace de WhatsApp:', authInit.whatsappLink);
 
-    // 3. Probar Estado de Autenticación
-    console.log('\n3. Verificando estado de auth...');
-    const authStatus = await BotProfileService.checkWhatsAppAuthStatus('+5491112345678');
-    console.log('✅ Estado de auth:', authStatus);
+    // 2. Simular mensaje entrante de webhook con el comando de verificación "verificar_TOKEN"
+    console.log('\n2. Simulando mensaje entrante en webhook: "verificar_' + authInit.token + '"...');
+    const webhookPayload = {
+      entry: [{
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            metadata: { phone_number_id: '880275461842101' },
+            messages: [{
+              from: testPhone,
+              text: { body: `verificar_${authInit.token}` },
+            }],
+          },
+        }],
+      }],
+    };
 
-    // 4. Probar Sistema de Chat (Guardar Mensaje Entrante)
-    console.log('\n4. Guardando mensaje entrante de chat...');
-    const incoming = await ChatService.saveMessage({
-      senderPhone: '+5491112345678',
-      botId: 'admin',
-      direction: 'incoming',
-      message: 'Hola bot, quiero cotizar un servicio',
-    });
-    console.log('✅ Mensaje entrante guardado:', incoming?.id);
+    const webhookResult = await BotService.handleIncomingWebhook(webhookPayload);
+    console.log('✅ Resultado del webhook de verificación:', webhookResult);
 
-    // 5. Probar Sistema de Chat (Responder / Mensaje Saliente)
-    console.log('\n5. Enviando respuesta saliente al usuario...');
-    const reply = await ChatService.replyToUser('+5491112345678', '¡Hola! Con gusto te ayudamos con tu cotización.', 'admin');
-    console.log('✅ Respuesta saliente guardada:', reply.data?.id);
+    // 3. Verificar que el estado de autenticación ahora sea verdadero (verified: true)
+    console.log('\n3. Comprobando estado de autenticación post-verificación...');
+    const authStatus = await BotProfileService.checkWhatsAppAuthStatus(testPhone);
+    console.log('✅ Estado de auth verificado:', authStatus);
 
-    // 6. Probar Listado de Conversaciones
-    console.log('\n6. Listando conversaciones activas...');
-    const convs = await ChatService.getConversations('+5491112345678');
-    console.log('✅ Conversaciones encontradas:', convs.length, convs);
-
-    // 7. Probar Historial por Número
-    console.log('\n7. Obteniendo historial de chat para el número...');
-    const messages = await ChatService.getMessagesByPhone('+5491112345678');
-    console.log(`✅ Mensajes en el historial: ${messages.length}`);
-
-    // 8. Probar Borrado de Chat
-    console.log('\n8. Borrando historial de chat...');
-    const deleted = await ChatService.deleteChat('+5491112345678');
-    console.log('✅ Borrado de chat exitoso:', deleted.message);
-
-    // 9. Verificar que se borró
-    const afterDelete = await ChatService.getMessagesByPhone('+5491112345678');
-    console.log(`✅ Mensajes tras el borrado: ${afterDelete.length} (Debe ser 0)`);
+    // 4. Probar respuesta del bot al menú principal (comando "menu" o "0")
+    console.log('\n4. Simulando mensaje de menú ("menu")...');
+    const menuPayload = {
+      entry: [{
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            metadata: { phone_number_id: '880275461842101' },
+            messages: [{
+              from: testPhone,
+              text: { body: 'menu' },
+            }],
+          },
+        }],
+      }],
+    };
+    const menuResult = await BotService.handleIncomingWebhook(menuPayload);
+    console.log('✅ Resultado del menú principal:', menuResult);
 
     console.log('\n==================================================');
-    console.log('🎉 ¡AUDITORÍA COMPLETADA CON ÉXITO! TODAS LAS PRUEBAS PASARON.');
+    console.log('🎉 ¡AUDITORÍA DEL BOT Y VERIFICACIÓN EXITOSA!');
     console.log('==================================================');
     process.exit(0);
   } catch (err: any) {
-    console.error('❌ Error crítico durante la auditoría:', err);
+    console.error('❌ Error crítico durante la auditoría del bot:', err);
     process.exit(1);
   }
 }

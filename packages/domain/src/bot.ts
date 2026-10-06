@@ -51,8 +51,20 @@ export class BotProfileService {
       throw new Error('Número de teléfono inválido');
     }
     const token = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutos
-    this.pendingAuthStore.set(token, { phoneNumber: cleanPhone, expiresAt, verified: false });
+    const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+
+    await prisma.botSession.upsert({
+      where: { senderPhone: cleanPhone },
+      update: {
+        loginToken: token,
+        loginTokenExpires: expiresAtDate,
+      },
+      create: {
+        senderPhone: cleanPhone,
+        loginToken: token,
+        loginTokenExpires: expiresAtDate,
+      },
+    });
 
     // Detectar el número oficial del bot
     let botNumber = process.env.WHATSAPP_BOT_NUMBER || process.env.BOT_PHONE_NUMBER || '';
@@ -390,6 +402,54 @@ export class BotService {
     return await prisma.botFlow.delete({ where: { id } });
   }
 
+  static async sendWhatsAppMessage(senderPhone: string, text: string, phoneNumberId?: string) {
+    try {
+      const credential = await CredentialService.getCredential('whatsapp');
+      if (!credential || !credential.apiKey) {
+        logger.error('No se encontraron credenciales de WhatsApp para enviar respuesta');
+        return false;
+      }
+
+      const accessToken = credential.apiKey;
+      let targetPhoneId = phoneNumberId;
+      if (!targetPhoneId && credential.targetUrl) {
+        const match = credential.targetUrl.match(/\/v[\d.]+\/(\d+)\/messages/);
+        if (match) targetPhoneId = match[1];
+      }
+      if (!targetPhoneId) targetPhoneId = '880275461842101';
+
+      const graphApiUrl = `https://graph.facebook.com/v17.0/${targetPhoneId}/messages`;
+
+      await ChatService.saveMessage({
+        senderPhone,
+        botId: 'admin',
+        direction: 'outgoing',
+        message: text,
+      });
+
+      const response = await fetch(graphApiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: senderPhone,
+          type: 'text',
+          text: { body: text },
+        }),
+      });
+
+      const responseData = await response.json();
+      logger.info({ responseStatus: response.status, responseData }, 'Respuesta enviada a WhatsApp exitosamente');
+      return response.ok;
+    } catch (err: any) {
+      logger.error({ err: err.message }, 'Error al enviar mensaje por Graph API de WhatsApp');
+      return false;
+    }
+  }
+
   static async handleIncomingWebhook(payload: any, botId?: string) {
     logger.info({ payload, botId }, 'Procesando webhook entrante de WhatsApp para perfil de bot');
     try {
@@ -428,17 +488,18 @@ export class BotService {
 
         if (session) {
           if (session.loginTokenExpires && session.loginTokenExpires < new Date()) {
-            return { processed: true, response: '⏳ El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.' };
+            const errReply = '⏳ El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.';
+            await this.sendWhatsAppMessage(senderPhone, errReply, phoneNumberId);
+            return { processed: true, response: errReply };
           }
 
           const cleanTarget = session.senderPhone.replace(/[^0-9]/g, '');
 
           if (cleanSender !== cleanTarget) {
             logger.warn({ senderPhone, targetPhone: session.senderPhone }, 'Intento de suplantación detectado en webhook de WhatsApp');
-            return {
-              processed: true,
-              response: `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token (${session.senderPhone}). Otro número no puede iniciar sesión por ti.`,
-            };
+            const spoofReply = `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token.`;
+            await this.sendWhatsAppMessage(senderPhone, spoofReply, phoneNumberId);
+            return { processed: true, response: spoofReply };
           }
 
           // ¡Verificación exitosa en BD! Consumir el token
@@ -458,9 +519,12 @@ export class BotService {
 
           logger.info({ phoneNumber: senderPhone }, 'Autenticación por WhatsApp verificada en BD y sesión autorizada');
 
+          const successReply = `✅ ¡Verificación exitosa en WhatsApp! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes regresar a la web.`;
+          await this.sendWhatsAppMessage(senderPhone, successReply, phoneNumberId);
+
           return {
             processed: true,
-            response: `✅ ¡Verificación exitosa en WhatsApp! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes regresar a la web.`,
+            response: successReply,
           };
         }
       }
