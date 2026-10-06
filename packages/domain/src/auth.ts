@@ -5,6 +5,14 @@ import { BotProfileService } from './bot';
 import * as crypto from 'crypto';
 
 export class AuthService {
+  static isAdmin(phoneNumber?: string | null): boolean {
+    if (!phoneNumber) return false;
+    const clean = phoneNumber.replace(/[^0-9]/g, '');
+    const adminEnv = process.env.ADMIN_PHONE_NUMBERS || '5493765376985,34600123456';
+    const admins = adminEnv.split(',').map(p => p.replace(/[^0-9]/g, ''));
+    return admins.includes(clean);
+  }
+
   static async generateLoginLink(phoneNumber: string) {
     if (!phoneNumber || !phoneNumber.trim()) {
       throw new AppError('Phone number is required', 'Se requiere un número de teléfono válido.', 'INVALID_PHONE' as any, 400);
