@@ -13,7 +13,7 @@ interface MenuOption {
 }
 
 export default function TestPanel() {
-  const { userPhone, isLoggedIn, logout } = useUserSession();
+  const { userPhone, isLoggedIn, logout, login } = useUserSession();
   const [userBots, setUserBots] = useState<any[]>([]);
 
   const [botName, setBotName] = useState('Asistente Comercial Pro');
@@ -27,7 +27,7 @@ export default function TestPanel() {
   useEffect(() => {
     if (isLoggedIn && userPhone) {
       setPhoneNumber(userPhone);
-      fetch(`http://localhost:4000/bot/profiles?phoneNumber=${encodeURIComponent(userPhone)}`)
+      fetch(`/bot/profiles?phoneNumber=${encodeURIComponent(userPhone)}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.data) {
@@ -226,11 +226,18 @@ export default function TestPanel() {
     logger.info({ parent: activeParentNumber, subNumber, newLabelText }, 'Submenú actualizado');
   };
 
-  const handleSaveBotToBackend = async () => {
-    const targetPhone = isLoggedIn && userPhone ? userPhone : phoneNumber;
+  const handleSaveBotToBackend = async (overridePhone?: string) => {
+    const targetPhone = overridePhone || (isLoggedIn && userPhone ? userPhone : phoneNumber);
     if (!targetPhone.trim()) {
-      setSaveStatus('Error: Se requiere iniciar sesión con WhatsApp o ingresar un número de teléfono válido.');
-      return;
+      const inputPhone = window.prompt('🔒 Ingresa tu número de WhatsApp para guardar tu bot en la base de datos (ej: +5491112345678):');
+      if (inputPhone && inputPhone.trim()) {
+        login(inputPhone.trim());
+        setPhoneNumber(inputPhone.trim());
+        return handleSaveBotToBackend(inputPhone.trim());
+      } else {
+        setSaveStatus('Error: Se requiere un número de teléfono válido para guardar en la base de datos.');
+        return;
+      }
     }
     if (!botName.trim()) {
       setSaveStatus('Error: El nombre del bot es obligatorio.');
@@ -241,7 +248,7 @@ export default function TestPanel() {
     setSaveStatus(null);
 
     try {
-      const response = await fetch('http://localhost:4000/bot/profiles', {
+      const response = await fetch('/bot/profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -428,7 +435,13 @@ export default function TestPanel() {
               <div style={{ marginTop: '8px' }}>
                 <button
                   type="button"
-                  onClick={handleSaveBotToBackend}
+                  onClick={() => {
+                    if (!isLoggedIn) {
+                      window.location.href = '/login';
+                      return;
+                    }
+                    handleSaveBotToBackend();
+                  }}
                   disabled={isSaving}
                   style={{ width: '100%', padding: '12px', backgroundColor: isLoggedIn ? 'var(--color-primary)' : '#64748b', color: 'white', border: 'none', borderRadius: 'var(--radius-md)', fontWeight: 600, cursor: 'pointer', opacity: isSaving ? 0.7 : 1 }}
                 >
