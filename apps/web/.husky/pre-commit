@@ -1,0 +1,17 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "--- Ejecutando pre-commit: Lint y TypeScript ---"
+npx lint-staged
+if [ $? -ne 0 ]; then
+  echo "Error en lint-staged"
+  exit 1
+fi
+
+npx tsc --noEmit
+if [ $? -ne 0 ]; then
+  echo "Error de tipos TypeScript"
+  exit 1
+fi
+
+echo "--- Pre-commit exitoso ---"

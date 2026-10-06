@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://TU_DOMINIO_REAL.up.railway.app/sitemap.xml

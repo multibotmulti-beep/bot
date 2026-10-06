@@ -1,0 +1,126 @@
+.sales-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding: 0;
+  padding-bottom: 70px; /* Espacio para el Dock */
+  gap: var(--space-xs); /* Compacto */
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Buscador */
+.search-area {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--color-background);
+  padding: var(--space-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Categorías (Píldoras) - Justo debajo del buscador */
+.categories-area {
+  overflow-x: auto;
+  display: flex;
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm);
+  scrollbar-width: none;
+  z-index: 5;
+  margin-top: 0; /* Sin margen negativo para evitar cortes */
+}
+.categories-area::-webkit-scrollbar {
+  display: none;
+}
+
+/* Productos */
+.products-area {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-sm) 100px var(--space-sm);
+  z-index: 1;
+  white-space: nowrap;
+}
+
+/* Carrito */
+.cart-budget-card {
+  position: fixed;
+  bottom: 80px;
+  left: var(--space-sm);
+  right: var(--space-sm);
+  z-index: 900;
+  background: var(--color-background);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.15);
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .sales-panel {
+    display: grid !important;
+    grid-template-columns: 200px 1fr 400px;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      'search search cart'
+      'categories products cart';
+    gap: var(--space-lg);
+    padding: var(--space-lg);
+    height: 100dvh;
+    box-sizing: border-box;
+  }
+
+  .search-area {
+    grid-area: search;
+    padding: 0;
+    max-width: 800px; /* 2x 400px de ancho de carrito */
+    width: 100%;
+  }
+
+  .categories-area {
+    grid-area: categories;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: auto;
+    padding: 0;
+  }
+
+  .products-area {
+    grid-area: products;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: grid;
+    /* Ancho fijo de 120px (cuadrado base + 20% aprox) */
+    grid-template-columns: repeat(auto-fill, 120px);
+    justify-content: center;
+    /* Altura fija de 100px */
+    grid-auto-rows: 100px;
+    align-content: start;
+    padding: 0;
+    padding-bottom: 50px;
+    gap: var(--space-md);
+    margin-top: 17px; /* Ajuste final: bajado 10px adicionales */
+  }
+
+  .cart-budget-card {
+    grid-area: cart;
+    position: static;
+    height: 100%;
+    max-height: 100%;
+    overflow-y: auto; /* Permite scroll solo en el carrito si es muy largo */
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    display: flex;
+    flex-direction: column;
+  }
+}
