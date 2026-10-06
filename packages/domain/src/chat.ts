@@ -31,12 +31,28 @@ export class ChatService {
     let where: any = {};
 
     if (!isAdmin && phoneNumber) {
+      const cleanPhone = phoneNumber.trim();
       const userBots = await prisma.botProfile.findMany({
-        where: { phoneNumber: phoneNumber.trim() },
+        where: {
+          OR: [
+            { phoneNumber: cleanPhone },
+            { user: { phoneNumber: cleanPhone } }
+          ]
+        },
         select: { botId: true },
       });
       const botIds = userBots.map(b => b.botId);
-      where = { botId: { in: botIds } };
+      where = {
+        AND: [
+          { botId: { not: 'admin' } },
+          {
+            OR: [
+              { botId: { in: botIds } },
+              { senderPhone: cleanPhone }
+            ]
+          }
+        ]
+      };
     }
 
     const messages = await prisma.chatMessage.findMany({

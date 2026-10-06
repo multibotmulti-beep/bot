@@ -451,6 +451,17 @@ server.post('/bot/profiles', {
   reply.status(201).send({ success: true, data: profile });
 });
 
+server.put('/bot/profiles/:id', {
+  schema: {
+    description: 'Actualiza un perfil de bot por ID',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { id } = request.params as { id: string };
+  const profile = await BotProfileService.updateProfile(id, request.body);
+  return { success: true, data: profile };
+});
+
 server.get('/bot/rules', {
   schema: {
     description: 'Lista las reglas de respuesta automática de los bots',
@@ -470,6 +481,17 @@ server.post('/bot/rules', {
 }, async (request, reply) => {
   const rule = await BotService.createRule(request.body as any);
   reply.status(201).send({ success: true, data: rule });
+});
+
+server.put('/bot/rules/:id', {
+  schema: {
+    description: 'Actualiza una regla de bot por ID',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { id } = request.params as { id: string };
+  const rule = await BotService.updateRule(id, request.body);
+  return { success: true, data: rule };
 });
 
 server.delete('/bot/rules/:id', {
@@ -502,6 +524,17 @@ server.post('/bot/flows', {
 }, async (request, reply) => {
   const flow = await BotService.createFlow(request.body as any);
   reply.status(201).send({ success: true, data: flow });
+});
+
+server.put('/bot/flows/:id', {
+  schema: {
+    description: 'Actualiza un flujo conversacional por ID',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { id } = request.params as { id: string };
+  const flow = await BotService.updateFlow(id, request.body);
+  return { success: true, data: flow };
 });
 
 server.delete('/bot/flows/:id', {

@@ -233,6 +233,21 @@ export class BotProfileService {
     return await prisma.botProfile.delete({ where: { id } });
   }
 
+  static async updateProfile(id: string, data: any) {
+    logger.info({ profileId: id }, 'Actualizando perfil de bot');
+    return await prisma.botProfile.update({
+      where: { id },
+      data: {
+        name: data.name,
+        description: data.description,
+        type: data.type,
+        isPublic: data.isPublic,
+        isActive: data.isActive,
+        phoneNumber: data.phoneNumber,
+      },
+    });
+  }
+
   static async seedDemoProfiles() {
     logger.info('Sembrando perfiles de bots demo pre-cargados y Bot Admin Central');
 
@@ -258,9 +273,10 @@ export class BotProfileService {
           triggerKeyword: 'menu',
           flowType: 'menu',
           content: JSON.stringify([
-            { label: '1. 🔑 Iniciar sesión', option: '1' },
-            { label: '2. 🤖 Ver un bot', option: '2' },
-            { label: '3. 👤 Hablar con un admin', option: '3' }
+            { label: '1. 🔑 Iniciar sesión / Mi cuenta', option: '1' },
+            { label: '2. 📋 Listar mis bots', option: '2' },
+            { label: '3. 🤖 Ver todos los bots', option: '3' },
+            { label: '4. 👤 Hablar con un asesor', option: '4' }
           ]),
           responseMessage: '¡Bienvenido al Bot Oficial! Por favor selecciona una opción:',
           isActive: true,
@@ -374,6 +390,19 @@ export class BotService {
     return await prisma.botRule.delete({ where: { id } });
   }
 
+  static async updateRule(id: string, data: any) {
+    logger.info({ ruleId: id }, 'Actualizando regla de bot');
+    return await prisma.botRule.update({
+      where: { id },
+      data: {
+        keyword: data.keyword?.toLowerCase().trim(),
+        matchType: data.matchType,
+        responseMessage: data.responseMessage,
+        isActive: data.isActive,
+      },
+    });
+  }
+
   static async getFlows(botProfileId?: string) {
     logger.info({ botProfileId }, 'Obteniendo flujos de conversación');
     const where = botProfileId ? { botProfileId } : {};
@@ -400,6 +429,21 @@ export class BotService {
   static async deleteFlow(id: string) {
     logger.info({ flowId: id }, 'Eliminando flujo');
     return await prisma.botFlow.delete({ where: { id } });
+  }
+
+  static async updateFlow(id: string, data: any) {
+    logger.info({ flowId: id }, 'Actualizando flujo');
+    return await prisma.botFlow.update({
+      where: { id },
+      data: {
+        name: data.name?.trim(),
+        triggerKeyword: data.triggerKeyword?.toLowerCase().trim(),
+        flowType: data.flowType,
+        content: data.content,
+        responseMessage: data.responseMessage,
+        isActive: data.isActive,
+      },
+    });
   }
 
   static async sendWhatsAppMessage(senderPhone: string, text: string, phoneNumberId?: string) {
@@ -476,57 +520,58 @@ export class BotService {
         message: message.text.body,
       });
 
-      // Verificar si el mensaje contiene un token de autenticación por WhatsApp ("verificar_TOKEN")
-      if (incomingText.startsWith('verificar_') || incomingText.startsWith('verificar ')) {
-        const token = incomingText.replace('verificar_', '').replace('verificar ', '').trim();
-        const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+      // Detección automática y robusta por defecto de tokens de verificación (Magic Link / OTP / Verificar)
+      const cleanIncoming = incomingText.replace(/[^a-z0-9_]/g, '');
+      let foundVerificationSession = null;
 
-        // Buscar sesión en la base de datos por loginToken
-        const session = await prisma.botSession.findFirst({
-          where: { loginToken: token },
+      if (cleanIncoming.startsWith('verificar') || cleanIncoming.startsWith('verify')) {
+        const tokenMatch = cleanIncoming.replace(/^(verificar|verify)[_ -]*/, '').trim();
+        if (tokenMatch) {
+          foundVerificationSession = await prisma.botSession.findFirst({
+            where: { loginToken: tokenMatch },
+          });
+        }
+      }
+
+      if (!foundVerificationSession && /^\d{6}$/.test(incomingText)) {
+        foundVerificationSession = await prisma.botSession.findFirst({
+          where: { loginToken: incomingText },
+        });
+      }
+
+      if (foundVerificationSession) {
+        const session = foundVerificationSession;
+        if (session.loginTokenExpires && session.loginTokenExpires < new Date()) {
+          const errReply = '⏳ El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.';
+          await this.sendWhatsAppMessage(senderPhone, errReply, phoneNumberId);
+          return { processed: true, response: errReply };
+        }
+
+        const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+        const cleanTarget = session.senderPhone.replace(/[^0-9]/g, '');
+
+        if (cleanSender !== cleanTarget) {
+          logger.warn({ senderPhone, targetPhone: session.senderPhone }, 'Intento de suplantación detectado en webhook de WhatsApp');
+          const spoofReply = `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token.`;
+          await this.sendWhatsAppMessage(senderPhone, spoofReply, phoneNumberId);
+          return { processed: true, response: spoofReply };
+        }
+
+        await prisma.botSession.update({
+          where: { senderPhone: session.senderPhone },
+          data: { loginToken: null, loginTokenExpires: null },
         });
 
-        if (session) {
-          if (session.loginTokenExpires && session.loginTokenExpires < new Date()) {
-            const errReply = '⏳ El código de verificación ha expirado. Por favor solicita uno nuevo desde la web.';
-            await this.sendWhatsAppMessage(senderPhone, errReply, phoneNumberId);
-            return { processed: true, response: errReply };
-          }
+        await prisma.user.upsert({
+          where: { phoneNumber: cleanSender },
+          update: {},
+          create: { phoneNumber: cleanSender, name: `Usuario ${cleanSender}` },
+        });
 
-          const cleanTarget = session.senderPhone.replace(/[^0-9]/g, '');
-
-          if (cleanSender !== cleanTarget) {
-            logger.warn({ senderPhone, targetPhone: session.senderPhone }, 'Intento de suplantación detectado en webhook de WhatsApp');
-            const spoofReply = `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token.`;
-            await this.sendWhatsAppMessage(senderPhone, spoofReply, phoneNumberId);
-            return { processed: true, response: spoofReply };
-          }
-
-          // ¡Verificación exitosa en BD! Consumir el token
-          await prisma.botSession.update({
-            where: { senderPhone: session.senderPhone },
-            data: {
-              loginToken: null,
-              loginTokenExpires: null,
-            },
-          });
-
-          await prisma.user.upsert({
-            where: { phoneNumber: cleanSender },
-            update: {},
-            create: { phoneNumber: cleanSender, name: `Usuario ${cleanSender}` },
-          });
-
-          logger.info({ phoneNumber: senderPhone }, 'Autenticación por WhatsApp verificada en BD y sesión autorizada');
-
-          const successReply = `✅ ¡Verificación exitosa en WhatsApp! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes regresar a la web.`;
-          await this.sendWhatsAppMessage(senderPhone, successReply, phoneNumberId);
-
-          return {
-            processed: true,
-            response: successReply,
-          };
-        }
+        logger.info({ phoneNumber: senderPhone }, 'Autenticación por WhatsApp verificada en BD y sesión autorizada');
+        const successReply = `✅ ¡Verificación exitosa en WhatsApp! Tu número ${senderPhone} ha sido autenticado correctamente. Ya puedes regresar a la web.`;
+        await this.sendWhatsAppMessage(senderPhone, successReply, phoneNumberId);
+        return { processed: true, response: successReply };
       }
 
       // Gestión de sesión persistente por número de teléfono (senderPhone)
@@ -602,9 +647,10 @@ export class BotService {
               data: { wizardStep: 0, draftName: null, draftStyle: null, draftOptions: null },
             });
             matchedResponse = '¡Bienvenido al Bot Oficial! Por favor selecciona una opción:\n\n' +
-              '1. 🔑 Iniciar sesión\n' +
-              '2. 🤖 Ver un bot\n' +
-              '3. 👤 Hablar con un admin\n\n' +
+              '1. 🔑 Iniciar sesión / Mi cuenta\n' +
+              '2. 📋 Listar mis bots\n' +
+              '3. 🤖 Ver todos los bots\n' +
+              '4. 👤 Hablar con un asesor\n\n' +
               '0. ↩️ Volver';
           } else if (session.wizardStep === 0) {
             if (incomingText === '1' || incomingText === 'iniciar sesion' || incomingText === 'sesion') {
@@ -628,17 +674,37 @@ export class BotService {
                 `Haz clic en el siguiente enlace para ingresar a tu panel de control sin contraseña:\n\n` +
                 `🔗 ${loginUrl}\n\n` +
                 `(Este enlace es válido por 15 minutos).`;
-            } else if (incomingText === '2' || incomingText === 'ver un bot' || incomingText === 'bot') {
+            } else if (incomingText === '2' || incomingText.includes('mis bots') || incomingText.includes('listar')) {
+              const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+              const user = await prisma.user.findFirst({
+                where: {
+                  OR: [
+                    { phoneNumber: senderPhone },
+                    { phoneNumber: cleanSender },
+                    { phoneNumber: `+${cleanSender}` }
+                  ]
+                },
+                include: { bots: true }
+              });
+
+              if (!user || user.bots.length === 0) {
+                matchedResponse = `📋 *Listar Mis Bots*\n\nHola, tu número *${senderPhone}* no tiene bots asociados actualmente.\n\nEnvía *1* para iniciar sesión o registrar tu configuración.\n\n0. ↩️ Volver`;
+              } else {
+                const botList = user.bots.map((b, idx) => `${idx + 1}. *${b.name}* (ID: \`${b.botId}\`) - ${b.isActive ? '🟢 Activo' : '🔴 Inactivo'}`).join('\n');
+                matchedResponse = `📋 *Tus Bots Registrados (*${user.name || senderPhone}*):*\n\n${botList}\n\nEnvía el ID de tu bot para interactuar con él.\n\n0. ↩️ Volver`;
+              }
+            } else if (incomingText === '3' || incomingText === 'ver un bot' || incomingText === 'bot' || incomingText.includes('bots')) {
               const profiles = await prisma.botProfile.findMany({ where: { isActive: true, isPublic: true }, take: 5 });
               const list = profiles.map(p => `• *${p.name}* (ID / Tel: \`${p.botId}\`)`).join('\n');
               matchedResponse = `🤖 *Bots Disponibles en la Plataforma:*\n\n${list}\n\nEnvía el número o ID del bot que deseas consultar.`;
-            } else if (incomingText === '3' || incomingText === 'hablar con un admin' || incomingText === 'admin') {
-              matchedResponse = '👤 *Soporte y Administración:* Un asesor humano ha sido notificado y se pondrá en contacto contigo a la brevedad.';
+            } else if (incomingText === '4' || incomingText === 'hablar con un admin' || incomingText === 'admin' || incomingText.includes('asesor')) {
+              matchedResponse = '👤 *Soporte y Asistencia:* Un asesor humano ha sido notificado y se pondrá en contacto contigo a la brevedad.';
             } else {
               matchedResponse = '¡Bienvenido al Bot Oficial! Por favor selecciona una opción:\n\n' +
-                '1. 🔑 Iniciar sesión\n' +
-                '2. 🤖 Ver un bot\n' +
-                '3. 👤 Hablar con un admin\n\n' +
+                '1. 🔑 Iniciar sesión / Mi cuenta\n' +
+                '2. 📋 Listar mis bots\n' +
+                '3. 🤖 Ver todos los bots\n' +
+                '4. 👤 Hablar con un asesor\n\n' +
                 '0. ↩️ Volver';
             }
           } else if (session.wizardStep > 0) {
