@@ -11,6 +11,7 @@ export * from './whatsapp';
 export * from './bot';
 export * from './auth';
 export * from './chat';
+export * from './capabilities';
 
 // 1. Validaciones con Zod (Value Objects / DTOs)
 export const CreateUserSchema = z.object({

@@ -3,6 +3,7 @@ import { logger } from '@repo/logger';
 import { CredentialService } from './webhook';
 import { ChatService } from './chat';
 import { AuthService } from './auth';
+import { CapabilityRegistry } from './capabilities';
 import { z } from 'zod';
 
 export const CreateBotProfileSchema = z.object({
@@ -966,11 +967,16 @@ export class BotService {
                     const parsed = JSON.parse(targetParentFlow.content);
                     if (Array.isArray(parsed) && parsed[optNum]) {
                       const selectedOpt = parsed[optNum];
-                      childFlow = await prisma.botFlow.findFirst({
-                        where: { botProfileId, parentId: targetParentFlow.id, triggerKeyword: selectedOpt.option }
-                      }) || await prisma.botFlow.findFirst({
-                        where: { botProfileId, parentId: targetParentFlow.id }
-                      });
+                      if (selectedOpt.capabilityKey) {
+                        const capResult = await CapabilityRegistry.execute(selectedOpt.capabilityKey, { senderPhone, botId: profile?.botId });
+                        matchedResponse = (capResult.message || 'Acción ejecutada correctamente.') + '\n\n0. ↩️ Volver';
+                      } else {
+                        childFlow = await prisma.botFlow.findFirst({
+                          where: { botProfileId, parentId: targetParentFlow.id, triggerKeyword: selectedOpt.option }
+                        }) || await prisma.botFlow.findFirst({
+                          where: { botProfileId, parentId: targetParentFlow.id }
+                        });
+                      }
                     }
                   }
                 } catch {

@@ -4,7 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
-import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError } from '@repo/domain';
+import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry } from '@repo/domain';
 
 const server = Fastify({
   logger: false, // Usamos nuestro logger centralizado de pino
@@ -609,6 +609,29 @@ server.post('/webhooks/whatsapp/:botId', {
   const { botId } = request.params as { botId: string };
   const result = await BotService.handleIncomingWebhook(request.body, botId);
   return { success: true, data: result };
+});
+
+// ==========================================
+// 6. CAPACIDADES DE DOMINIO REUTILIZABLES (API, Frontend, Bot)
+// ==========================================
+server.get('/capabilities', {
+  schema: {
+    description: 'Lista todas las capacidades de dominio registradas en el sistema',
+    tags: ['Bots & AI'],
+  },
+}, async () => {
+  const capabilities = CapabilityRegistry.getAll();
+  return { success: true, data: capabilities };
+});
+
+server.post('/capabilities/execute', {
+  schema: {
+    description: 'Ejecuta una capacidad de dominio específica de forma unificada',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { capabilityKey, senderPhone, userId, botId, args } = request.body as any;
+  return await CapabilityRegistry.execute(capabilityKey, { senderPhone, userId, botId, args });
 });
 
 // ==========================================
