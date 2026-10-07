@@ -73,6 +73,7 @@ model BotRule {
   keyword         String
   matchType       String      @default("exact")
   responseMessage String
+  actionKey       String?
   isActive        Boolean     @default(true)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -90,6 +91,7 @@ model BotFlow {
   flowType        String
   content         String
   responseMessage String
+  actionKey       String?
   isActive        Boolean     @default(true)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt

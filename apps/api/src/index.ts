@@ -4,7 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
-import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry } from '@repo/domain';
+import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry, MasterBotEngine } from '@repo/domain';
 
 const server = Fastify({
   logger: false, // Usamos nuestro logger centralizado de pino
@@ -568,7 +568,7 @@ server.delete('/bot/flows/:id', {
   return { success: true, message: 'Flujo de conversación eliminado correctamente' };
 });
 
-// Webhook oficial de WhatsApp para procesar mensajes con perfiles de bot
+// Webhook oficial de WhatsApp para procesar mensajes con MasterBotEngine
 server.get('/webhooks/whatsapp', {
   schema: {
     description: 'Verificación de webhook de WhatsApp (Meta)',
@@ -611,24 +611,138 @@ server.get('/webhooks/whatsapp/:botId', {
 
 server.post('/webhooks/whatsapp', {
   schema: {
-    description: 'Recepción de mensajes de WhatsApp',
+    description: 'Recepción de mensajes de WhatsApp usando MasterBotEngine',
     tags: ['Webhooks'],
   },
 }, async (request) => {
-  const query = request.query as { botId?: string };
-  const result = await BotService.handleIncomingWebhook(request.body, query.botId);
+  const payload = request.body as any;
+  const entry = payload?.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+  const message = value?.messages?.[0];
+
+  if (!message || !message.text) {
+    return { processed: false, reason: 'not_text_message' };
+  }
+
+  const engine = new MasterBotEngine();
+  const result = await engine.processMessage({
+    senderPhone: message.from,
+    incomingText: message.text.body,
+    phoneNumberId: value?.metadata?.phone_number_id,
+    rawPayload: payload,
+  });
   return { success: true, data: result };
 });
 
 server.post('/webhooks/whatsapp/:botId', {
   schema: {
-    description: 'Recepción de mensajes de WhatsApp para un bot específico',
+    description: 'Recepción de mensajes de WhatsApp para un bot específico usando MasterBotEngine',
     tags: ['Webhooks'],
   },
 }, async (request) => {
   const { botId } = request.params as { botId: string };
-  const result = await BotService.handleIncomingWebhook(request.body, botId);
+  const payload = request.body as any;
+  const entry = payload?.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+  const message = value?.messages?.[0];
+
+  if (!message || !message.text) {
+    return { processed: false, reason: 'not_text_message' };
+  }
+
+  const { prisma } = await import('@repo/database');
+  await prisma.botSession.upsert({
+    where: { senderPhone: message.from },
+    update: { activeBotId: botId },
+    create: { senderPhone: message.from, activeBotId: botId },
+  });
+
+  const engine = new MasterBotEngine();
+  const result = await engine.processMessage({
+    senderPhone: message.from,
+    incomingText: message.text.body,
+    phoneNumberId: value?.metadata?.phone_number_id,
+    rawPayload: payload,
+  });
   return { success: true, data: result };
+});
+
+// ==========================================
+// 5.1 ENDPOINTS DE MANIPULACIÓN DE CONFIGURACIÓN DEL BOT VÍA API (Menú, Bienvenida)
+// ==========================================
+server.get('/bot/profiles/:id/full', {
+  schema: { description: 'Obtiene el perfil completo de un bot con reglas, flujos y configuración', tags: ['Bots & AI'] },
+}, async (request) => {
+  const { id } = request.params as { id: string };
+  const { prisma } = await import('@repo/database');
+  const profile = await prisma.botProfile.findUnique({
+    where: { id },
+    include: { rules: true, flows: true },
+  });
+  return { success: true, data: profile };
+});
+
+server.put('/bot/profiles/:id/menu', {
+  schema: { description: 'Modifica el menú principal y opciones de un bot vía API', tags: ['Bots & AI'] },
+}, async (request) => {
+  const { id } = request.params as { id: string };
+  const { menuOptions, responseMessage } = request.body as { menuOptions: any[]; responseMessage?: string };
+  const { prisma } = await import('@repo/database');
+  
+  const profile = await prisma.botProfile.findUnique({ where: { id } });
+  if (!profile) throw new Error('Bot profile not found');
+
+  const rootFlow = await prisma.botFlow.findFirst({
+    where: { botProfileId: id, parentId: null },
+  });
+
+  if (rootFlow) {
+    const updated = await prisma.botFlow.update({
+      where: { id: rootFlow.id },
+      data: {
+        content: JSON.stringify(menuOptions),
+        responseMessage: responseMessage || rootFlow.responseMessage,
+      },
+    });
+    return { success: true, data: updated };
+  } else {
+    const created = await prisma.botFlow.create({
+      data: {
+        botProfileId: id,
+        name: `Menú Principal de ${profile.name}`,
+        triggerKeyword: 'menu',
+        flowType: 'menu',
+        content: JSON.stringify(menuOptions),
+        responseMessage: responseMessage || 'Selecciona una opción:',
+        isActive: true,
+      },
+    });
+    return { success: true, data: created };
+  }
+});
+
+server.put('/bot/profiles/:id/welcome', {
+  schema: { description: 'Modifica el mensaje de bienvenida o respuesta del flujo raíz de un bot vía API', tags: ['Bots & AI'] },
+}, async (request) => {
+  const { id } = request.params as { id: string };
+  const { responseMessage } = request.body as { responseMessage: string };
+  const { prisma } = await import('@repo/database');
+
+  const rootFlow = await prisma.botFlow.findFirst({
+    where: { botProfileId: id, parentId: null },
+  });
+
+  if (rootFlow) {
+    const updated = await prisma.botFlow.update({
+      where: { id: rootFlow.id },
+      data: { responseMessage },
+    });
+    return { success: true, data: updated };
+  } else {
+    return { success: false, message: 'No se encontró un flujo raíz para este bot.' };
+  }
 });
 
 // ==========================================
