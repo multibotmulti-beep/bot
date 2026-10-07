@@ -99,15 +99,34 @@ export class MasterBotEngine extends BaseBotEngine {
 
     // 1. Verificador de sesión propio con código generado y número remitente
     const cleanIncoming = incomingText.replace(/[^a-z0-9_]/g, '');
-    if (cleanIncoming.startsWith('verificar') || cleanIncoming.startsWith('verify') || /^\d{6}$/.test(incomingText)) {
-      const tokenMatch = cleanIncoming.replace(/^(verificar|verify)[_ -]*/, '').trim() || incomingText;
-      const sessionToken = await prisma.botSession.findFirst({ where: { loginToken: tokenMatch } });
+    const tokenMatch = cleanIncoming.replace(/^(verificar|verify)[_ -]*/, '').trim() || incomingText.trim();
+    
+    if (cleanIncoming.startsWith('verificar') || cleanIncoming.startsWith('verify') || /^\d{6}$/.test(incomingText) || tokenMatch.length >= 6) {
+      const sessionToken = await prisma.botSession.findFirst({
+        where: {
+          OR: [
+            { loginToken: tokenMatch },
+            { loginToken: incomingText.trim() },
+            { loginToken: cleanIncoming }
+          ]
+        }
+      });
 
       if (sessionToken) {
         if (sessionToken.loginTokenExpires && sessionToken.loginTokenExpires < new Date()) {
-          const expiredMsg = '⏳ El código de verificación ha expirado. Solicita uno nuevo desde la web.';
+          const expiredMsg = '⏳ El código de verificación ha expirado. Solicita uno nuevo desde la web o el menú.';
           await this.sendResponseToWhatsApp(senderPhone, expiredMsg, phoneNumberId);
           return { processed: true, response: expiredMsg };
+        }
+
+        const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+        const cleanTarget = sessionToken.senderPhone.replace(/[^0-9]/g, '');
+
+        if (cleanSender !== cleanTarget) {
+          logger.warn({ senderPhone, targetPhone: sessionToken.senderPhone }, 'Intento de suplantación de identidad detectado en verificación de token de WhatsApp');
+          const spoofMsg = `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token (${sessionToken.senderPhone}). No puedes verificar ni registrar un número que no posees.`;
+          await this.sendResponseToWhatsApp(senderPhone, spoofMsg, phoneNumberId);
+          return { processed: true, response: spoofMsg };
         }
 
         await prisma.botSession.update({
@@ -121,7 +140,7 @@ export class MasterBotEngine extends BaseBotEngine {
           create: { phoneNumber: senderPhone, name: `Usuario ${senderPhone}` },
         });
 
-        const successMsg = `✅ ¡Verificación de sesión exitosa para el número ${senderPhone}!`;
+        const successMsg = `✅ ¡Verificación de sesión exitosa para el número ${senderPhone}! Tu cuenta ha sido autenticada correctamente.`;
         await this.sendResponseToWhatsApp(senderPhone, successMsg, phoneNumberId);
         return { processed: true, response: successMsg };
       }

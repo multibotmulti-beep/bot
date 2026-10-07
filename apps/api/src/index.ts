@@ -680,6 +680,9 @@ server.get('/bot/profiles/:id/full', {
   const profile = await prisma.botProfile.findUnique({
     where: { id },
     include: { rules: true, flows: true },
+  }) || await prisma.botProfile.findUnique({
+    where: { botId: id },
+    include: { rules: true, flows: true },
   });
   return { success: true, data: profile };
 });
@@ -691,11 +694,12 @@ server.put('/bot/profiles/:id/menu', {
   const { menuOptions, responseMessage } = request.body as { menuOptions: any[]; responseMessage?: string };
   const { prisma } = await import('@repo/database');
   
-  const profile = await prisma.botProfile.findUnique({ where: { id } });
+  const profile = await prisma.botProfile.findUnique({ where: { id } }) || await prisma.botProfile.findUnique({ where: { botId: id } });
   if (!profile) throw new Error('Bot profile not found');
+  const profileUuid = profile.id;
 
   const rootFlow = await prisma.botFlow.findFirst({
-    where: { botProfileId: id, parentId: null },
+    where: { botProfileId: profileUuid, parentId: null },
   });
 
   if (rootFlow) {
@@ -710,7 +714,7 @@ server.put('/bot/profiles/:id/menu', {
   } else {
     const created = await prisma.botFlow.create({
       data: {
-        botProfileId: id,
+        botProfileId: profileUuid,
         name: `Menú Principal de ${profile.name}`,
         triggerKeyword: 'menu',
         flowType: 'menu',
@@ -730,8 +734,12 @@ server.put('/bot/profiles/:id/welcome', {
   const { responseMessage } = request.body as { responseMessage: string };
   const { prisma } = await import('@repo/database');
 
+  const profile = await prisma.botProfile.findUnique({ where: { id } }) || await prisma.botProfile.findUnique({ where: { botId: id } });
+  if (!profile) throw new Error('Bot profile not found');
+  const profileUuid = profile.id;
+
   const rootFlow = await prisma.botFlow.findFirst({
-    where: { botProfileId: id, parentId: null },
+    where: { botProfileId: profileUuid, parentId: null },
   });
 
   if (rootFlow) {
@@ -743,6 +751,7 @@ server.put('/bot/profiles/:id/welcome', {
   } else {
     return { success: false, message: 'No se encontró un flujo raíz para este bot.' };
   }
+});
 });
 
 // ==========================================

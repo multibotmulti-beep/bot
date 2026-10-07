@@ -49,14 +49,59 @@ export class BotFunctionRegistry {
     // Registro de funciones base dinámicas conectadas a capacidades
     this.register({
       actionKey: 'auth.login',
-      description: 'Genera enlace de inicio de sesión automático sin contraseña',
+      description: 'Genera enlace de inicio de sesión automático sin contraseña, administra cuenta y estado',
       handler: async (ctx) => {
+        const { prisma } = await import('@repo/database');
+        const cleanPhone = ctx.senderPhone.replace(/[^0-9]/g, '');
+
+        // 1. Buscar si el usuario ya existe en la base de datos
+        let user = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { phoneNumber: ctx.senderPhone },
+              { phoneNumber: cleanPhone },
+              { phoneNumber: `+${cleanPhone}` }
+            ]
+          },
+          include: { bots: true },
+        });
+
+        let accountStatusMsg = '';
+        if (user) {
+          const botCount = user.bots ? user.bots.length : 0;
+          accountStatusMsg = `✅ Cuenta encontrada: ${botCount} bot(s) asociado(s).`;
+        } else {
+          accountStatusMsg = `⏳ Creando usuario...`;
+          user = await prisma.user.create({
+            data: {
+              phoneNumber: ctx.senderPhone,
+              name: `Usuario ${ctx.senderPhone}`,
+            },
+            include: { bots: true },
+          });
+          accountStatusMsg += `\n✅ ¡Usuario creado y guardado exitosamente en el sistema!`;
+        }
+
+        // 2. Generar token de inicio de sesión (magic link)
         const token = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+
+        // 3. Guardar token en BotSession
+        await prisma.botSession.upsert({
+          where: { senderPhone: ctx.senderPhone },
+          update: { loginToken: token, loginTokenExpires: expiresAt },
+          create: { senderPhone: ctx.senderPhone, loginToken: token, loginTokenExpires: expiresAt, activeBotId: ctx.botId },
+        });
+
         const loginUrl = `http://localhost:3000/login?phone=${encodeURIComponent(ctx.senderPhone)}&token=${token}`;
+
         return {
           success: true,
-          data: { token, loginUrl },
-          message: `🔑 *Inicio de Sesión Automático*\n\nTu enlace de acceso directo (válido por 15 min):\n🔗 ${loginUrl}`,
+          data: { token, loginUrl, user },
+          message: `🔑 *Gestión de Sesión e Inicio de Web*\n\n` +
+            `${accountStatusMsg}\n\n` +
+            `Haz clic en el siguiente enlace para ingresar a tu panel:\n🔗 ${loginUrl}\n\n` +
+            `*(También puedes enviar tu código *${token}* por chat para verificar tu sesión instantáneamente)*`,
         };
       },
     });
