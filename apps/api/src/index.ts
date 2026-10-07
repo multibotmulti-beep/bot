@@ -752,7 +752,6 @@ server.put('/bot/profiles/:id/welcome', {
     return { success: false, message: 'No se encontró un flujo raíz para este bot.' };
   }
 });
-});
 
 // ==========================================
 // 6. CAPACIDADES DE DOMINIO REUTILIZABLES (API, Frontend, Bot)
