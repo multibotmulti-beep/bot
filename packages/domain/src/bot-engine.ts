@@ -141,8 +141,35 @@ export class MasterBotEngine extends BaseBotEngine {
         });
 
         const successMsg = `✅ ¡Verificación de sesión exitosa para el número ${senderPhone}! Tu cuenta ha sido autenticada correctamente.`;
-        await this.sendResponseToWhatsApp(senderPhone, successMsg, phoneNumberId);
-        return { processed: true, response: successMsg };
+
+        // Cargar perfil admin y menú raíz para responder automáticamente con el menú
+        const adminProfile = await prisma.botProfile.findUnique({
+          where: { botId: 'admin' },
+          include: { flows: true },
+        });
+
+        let menuText = '';
+        if (adminProfile) {
+          const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: adminProfile.id, isActive: true, parentId: null } });
+          if (rootFlow) {
+            menuText = '\n\n' + rootFlow.responseMessage + '\n\n';
+            try {
+              const parsed = JSON.parse(rootFlow.content);
+              if (Array.isArray(parsed)) {
+                parsed.forEach((item: any, idx: number) => {
+                  menuText += `${idx + 1}. ${item.label || item.option}\n`;
+                });
+              }
+            } catch {
+              menuText += rootFlow.content;
+            }
+            menuText = menuText.trim() + '\n\n0. ↩️ Volver';
+          }
+        }
+
+        const fullResponse = `${successMsg}${menuText}`;
+        await this.sendResponseToWhatsApp(senderPhone, fullResponse, phoneNumberId);
+        return { processed: true, response: fullResponse };
       }
     }
 

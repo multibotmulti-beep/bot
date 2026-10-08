@@ -523,6 +523,79 @@ export class BotService {
         message: message.text.body,
       });
 
+      // 0. Verificador de sesión propio con código generado y número remitente
+      const cleanIncoming = incomingText.replace(/[^a-z0-9_]/g, '');
+      const tokenMatch = cleanIncoming.replace(/^(verificar|verify)[_ -]*/, '').trim() || incomingText.trim();
+      
+      if (cleanIncoming.startsWith('verificar') || cleanIncoming.startsWith('verify') || /^\d{6}$/.test(incomingText) || tokenMatch.length >= 6) {
+        const sessionToken = await prisma.botSession.findFirst({
+          where: {
+            OR: [
+              { loginToken: tokenMatch },
+              { loginToken: incomingText.trim() },
+              { loginToken: cleanIncoming }
+            ]
+          }
+        });
+
+        if (sessionToken) {
+          if (sessionToken.loginTokenExpires && sessionToken.loginTokenExpires < new Date()) {
+            const expiredMsg = '⏳ El código de verificación ha expirado. Solicita uno nuevo desde la web o el menú.';
+            await BotService.sendWhatsAppMessage(senderPhone, expiredMsg, phoneNumberId);
+            return { processed: true, response: expiredMsg };
+          }
+
+          const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+          const cleanTarget = sessionToken.senderPhone.replace(/[^0-9]/g, '');
+
+          if (cleanSender !== cleanTarget) {
+            const spoofMsg = `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token (${sessionToken.senderPhone}).`;
+            await BotService.sendWhatsAppMessage(senderPhone, spoofMsg, phoneNumberId);
+            return { processed: true, response: spoofMsg };
+          }
+
+          await prisma.botSession.update({
+            where: { senderPhone: sessionToken.senderPhone },
+            data: { loginToken: null, loginTokenExpires: null },
+          });
+
+          await prisma.user.upsert({
+            where: { phoneNumber: senderPhone },
+            update: {},
+            create: { phoneNumber: senderPhone, name: `Usuario ${senderPhone}` },
+          });
+
+          const successMsg = `✅ ¡Verificación de sesión exitosa para el número ${senderPhone}! Tu cuenta ha sido autenticada correctamente.`;
+          const adminProfile = await prisma.botProfile.findUnique({
+            where: { botId: 'admin' },
+            include: { flows: true },
+          });
+
+          let menuText = '';
+          if (adminProfile) {
+            const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: adminProfile.id, isActive: true, parentId: null } });
+            if (rootFlow) {
+              menuText = '\n\n' + rootFlow.responseMessage + '\n\n';
+              try {
+                const parsed = JSON.parse(rootFlow.content);
+                if (Array.isArray(parsed)) {
+                  parsed.forEach((item: any, idx: number) => {
+                    menuText += `${idx + 1}. ${item.label || item.option}\n`;
+                  });
+                }
+              } catch {
+                menuText += rootFlow.content;
+              }
+              menuText = menuText.trim() + '\n\n0. ↩️ Volver';
+            }
+          }
+
+          const fullResponse = `${successMsg}${menuText}`;
+          await BotService.sendWhatsAppMessage(senderPhone, fullResponse, phoneNumberId);
+          return { processed: true, response: fullResponse };
+        }
+      }
+
       // 1. Obtener o inicializar sesión del bot
       let session = await prisma.botSession.findUnique({ where: { senderPhone } });
       let activeBotId = botId || session?.activeBotId || BotConfig.defaultBotId;
