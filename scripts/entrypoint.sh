@@ -36,4 +36,4 @@ sleep 3
 # 3. Iniciar Frontend Web (Next.js) en el puerto asignado por Railway ($PORT o 3000)
 FRONTEND_PORT=${PORT:-3000}
 echo "🌐 Arrancando Frontend Web en puerto ${FRONTEND_PORT}..."
-exec pnpm --filter plantilla-web-paneles start -p ${FRONTEND_PORT} -H 0.0.0.0
+exec pnpm --filter whatsapp-bot-web start -p ${FRONTEND_PORT} -H 0.0.0.0
