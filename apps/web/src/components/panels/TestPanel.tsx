@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react';
 import logger from '@/lib/logger';
 import Icon from '@/components/Icon';
 import { useUserSession } from '@/lib/userSession';
+import { BotApiClient } from '@/lib/apiClient';
 
 interface MenuOption {
   number: string;
   label: string;
   response: string;
+  actionKey?: string;
   subOptions?: MenuOption[];
 }
 
@@ -275,19 +277,28 @@ export default function TestPanel() {
     logger.info('Reiniciando simulador de menú numérico');
   };
 
-  const handleTestSend = (e: React.FormEvent) => {
+  const handleTestSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testInput.trim()) return;
 
     const userText = testInput.trim();
     const newChatLog = [...chatLog, { sender: 'user' as const, text: userText }];
+    setChatLog(newChatLog);
+    setTestInput('');
 
     let botReply = '';
 
     if (chatParentNumber === null) {
       const matchedOption = options.find((opt) => opt.number === userText);
       if (matchedOption) {
-        if (matchedOption.subOptions && matchedOption.subOptions.length > 0) {
+        if (matchedOption.actionKey) {
+          try {
+            const data = await BotApiClient.executeFunction(matchedOption.actionKey, phoneNumber || '+5491155556666');
+            botReply = data.success ? data.message : `❌ Error ejecutando función: ${data.message}`;
+          } catch (err: any) {
+            botReply = `❌ Error de conexión al ejecutar la función del sistema: ${err.message}`;
+          }
+        } else if (matchedOption.subOptions && matchedOption.subOptions.length > 0) {
           setChatParentNumber(matchedOption.number);
           botReply = generateSubMenuText(matchedOption);
         } else {
@@ -304,7 +315,16 @@ export default function TestPanel() {
       } else if (parentOpt && parentOpt.subOptions) {
         const matchedSub = parentOpt.subOptions.find((s) => s.number === userText);
         if (matchedSub) {
-          botReply = matchedSub.response;
+          if (matchedSub.actionKey) {
+            try {
+              const data = await BotApiClient.executeFunction(matchedSub.actionKey, phoneNumber || '+5491155556666');
+              botReply = data.success ? data.message : `❌ Error ejecutando función: ${data.message}`;
+            } catch (err: any) {
+              botReply = `❌ Error de conexión al ejecutar la función del sistema: ${err.message}`;
+            }
+          } else {
+            botReply = matchedSub.response;
+          }
         } else {
           botReply = `Opción no válida. Responde con un número del 1 al ${parentOpt.subOptions.length} o 0 para volver.`;
         }
@@ -314,33 +334,45 @@ export default function TestPanel() {
       }
     }
 
-    setTimeout(() => {
-      setChatLog((prev) => [...prev, { sender: 'bot', text: botReply }]);
-    }, 400);
-
-    setChatLog(newChatLog);
-    setTestInput('');
-    logger.info({ input: userText, parent: chatParentNumber }, 'Entrada de usuario en simulador con submenús');
+    setChatLog((prev) => [...prev, { sender: 'bot', text: botReply }]);
+    logger.info({ input: userText, parent: chatParentNumber }, 'Entrada de usuario en simulador con ejecución de funciones reales');
   };
 
-  const handleSelectNumber = (opt: MenuOption) => {
+  const handleSelectNumber = async (opt: MenuOption) => {
     let newLog = [...chatLog, { sender: 'user' as const, text: `${opt.number} (${opt.label})` }];
+    setChatLog(newLog);
+
     let botReply = '';
 
     if (chatParentNumber === null) {
-      if (opt.subOptions && opt.subOptions.length > 0) {
+      if (opt.actionKey) {
+        try {
+          const data = await BotApiClient.executeFunction(opt.actionKey, phoneNumber || '+5491155556666');
+          botReply = data.success ? data.message : `❌ Error ejecutando función: ${data.message}`;
+        } catch (err: any) {
+          botReply = `❌ Error de conexión al ejecutar la función del sistema: ${err.message}`;
+        }
+      } else if (opt.subOptions && opt.subOptions.length > 0) {
         setChatParentNumber(opt.number);
         botReply = generateSubMenuText(opt);
       } else {
         botReply = opt.response;
       }
     } else {
-      botReply = opt.response;
+      if (opt.actionKey) {
+        try {
+          const data = await BotApiClient.executeFunction(opt.actionKey, phoneNumber || '+5491155556666');
+          botReply = data.success ? data.message : `❌ Error ejecutando función: ${data.message}`;
+        } catch (err: any) {
+          botReply = `❌ Error de conexión al ejecutar la función del sistema: ${err.message}`;
+        }
+      } else {
+        botReply = opt.response;
+      }
     }
 
-    newLog.push({ sender: 'bot' as const, text: botReply });
-    setChatLog(newLog);
-    logger.info({ number: opt.number }, 'Usuario seleccionó opción en simulador');
+    setChatLog((prev) => [...prev, { sender: 'bot' as const, text: botReply }]);
+    logger.info({ number: opt.number }, 'Usuario seleccionó opción con función real en simulador');
   };
 
   const activeParentOpt = activeParentNumber !== null ? options.find(o => o.number === activeParentNumber) : null;

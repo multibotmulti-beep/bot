@@ -452,14 +452,18 @@ export class BotService {
   static async sendWhatsAppMessage(senderPhone: string, text: string, phoneNumberId?: string) {
     try {
       const credential = await CredentialService.getCredential('whatsapp');
-      if (!credential || !credential.apiKey) {
+      const dbToken = credential?.apiKey;
+      const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_ACCESS_TOKEN !== 'EAAG_MOCK_WHATSAPP_TOKEN_2026')
+        ? process.env.WHATSAPP_ACCESS_TOKEN
+        : (dbToken || process.env.WHATSAPP_ACCESS_TOKEN);
+
+      if (!accessToken) {
         logger.error('No se encontraron credenciales de WhatsApp para enviar respuesta');
         return false;
       }
 
-      const accessToken = credential.apiKey;
-      let targetPhoneId = phoneNumberId;
-      if (!targetPhoneId && credential.targetUrl) {
+      let targetPhoneId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+      if (!targetPhoneId && credential?.targetUrl) {
         const match = credential.targetUrl.match(/\/v[\d.]+\/(\d+)\/messages/);
         if (match) targetPhoneId = match[1];
       }

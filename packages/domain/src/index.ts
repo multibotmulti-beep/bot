@@ -15,6 +15,8 @@ export * from './bot.functions';
 export * from './auth';
 export * from './chat';
 export * from './capabilities';
+export * from './memory';
+export * from './function-config';
 
 // 1. Validaciones con Zod (Value Objects / DTOs)
 export const CreateUserSchema = z.object({

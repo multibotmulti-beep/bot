@@ -10,6 +10,8 @@ export const panelRegistry: Record<string, ComponentType<any>> = {
   whatsapp: lazy(() => import('@/components/panels/WhatsAppStylePanel')),
   resources: lazy(() => import('@/components/panels/ResourcesPanel')),
   test: lazy(() => import('@/components/panels/TestPanel')),
+  bots: lazy(() => import('@/components/panels/BotManagementPanel')),
+  'function-config': lazy(() => import('@/components/panels/FunctionConfigPanel')),
 };
 
 export function registerPanel(id: string, component: ComponentType<any>) {

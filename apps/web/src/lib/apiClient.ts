@@ -1,5 +1,4 @@
 // Cliente API robusto para conectar el Frontend con el Backend con manejo de espera/timeout e integración de logs
-
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const REQUEST_TIMEOUT_MS = 12000; // 12 segundos de espera máxima
 
@@ -16,13 +15,20 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
 
   try {
     // Enviar log local al backend (sistema de logs centralizado)
-    reportLogToBackend('debug', `API Request: ${options.method || 'GET'} ${endpoint}`);
+    reportLogToBackend('debug', `API Request: {options.method || 'GET'} ${endpoint}`);
+
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+    const additionalHeaders: Record<string, string> = {};
+    if (!phone) {
+      additionalHeaders['X-Anonymous-Mode'] = 'true';
+    }
 
     const response = await fetch(url, {
       ...fetchOptions,
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...additionalHeaders,
         ...(fetchOptions.headers || {}),
       },
     });
@@ -66,11 +72,20 @@ export async function reportLogToBackend(level: 'debug' | 'info' | 'warn' | 'err
 // Servicios específicos para Bots
 export const BotApiClient = {
   async getProfiles() {
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+    if (!phone) {
+      return [{ id: 'local-bot', name: 'Bot Local (Navegador)', type: 'custom', isPublic: true }];
+    }
     const res = await apiFetch('/bot/profiles');
     return res.data || [];
   },
 
   async createBotWithMenus(botData: { name: string; description: string; welcomeMessage: string; options: any[] }) {
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+    if (!phone) {
+      return ClientDatabase.executeCommand('bot.save', botData);
+    }
+
     // 1. Crear perfil de bot
     const profileRes = await apiFetch('/bot/profiles', {
       method: 'POST',
@@ -125,5 +140,12 @@ export const BotApiClient = {
     }
 
     return profileRes.data;
+  },
+
+  async executeFunction(actionKey: string, senderPhone: string, botId?: string) {
+    return await apiFetch('/bot/execute-function', {
+      method: 'POST',
+      body: JSON.stringify({ actionKey, senderPhone, botId }),
+    });
   },
 };

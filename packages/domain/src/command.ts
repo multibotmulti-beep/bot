@@ -11,14 +11,26 @@ export const ExecuteCommandSchema = z.object({
 export type ExecuteCommandDTO = z.infer<typeof ExecuteCommandSchema>;
 
 /**
- * Gestor nativo para determinar la URL base de la aplicación (Local vs Railway / Producción)
+ * Gestor dinámico y consciente de peticiones (Request-Aware) para URLs base del API y Frontend.
+ * Soporta cabeceras de proxy/ngrok/Railway/producción automáticamente sin hardcoding.
  */
-function getSystemBaseUrl(customUrl?: string): string {
+export function getApiBaseUrl(customUrl?: string, reqContext?: { headers?: Record<string, any>; protocol?: string }): string {
   if (customUrl) {
     return customUrl.replace(/\/$/, '');
   }
 
-  // 1. Si está en Railway o producción con dominio público configurado
+  if (reqContext?.headers) {
+    const host = reqContext.headers['x-forwarded-host'] || reqContext.headers['host'];
+    if (host) {
+      const proto = reqContext.headers['x-forwarded-proto'] || reqContext.protocol || 'http';
+      return `${proto}://${host}`.replace(/\/$/, '');
+    }
+  }
+
+  if (process.env.API_URL) {
+    return process.env.API_URL.replace(/\/$/, '');
+  }
+
   if (process.env.RAILWAY_PUBLIC_DOMAIN) {
     const domain = process.env.RAILWAY_PUBLIC_DOMAIN.startsWith('http')
       ? process.env.RAILWAY_PUBLIC_DOMAIN
@@ -30,9 +42,48 @@ function getSystemBaseUrl(customUrl?: string): string {
     return process.env.PUBLIC_URL.replace(/\/$/, '');
   }
 
-  // 2. Entorno local por defecto
-  const port = process.env.PORT || '4000';
+  const port = process.env.API_PORT || process.env.PORT || '4000';
   return `http://localhost:${port}`;
+}
+
+export function getFrontendBaseUrl(customUrl?: string, reqContext?: { headers?: Record<string, any>; protocol?: string }): string {
+  if (customUrl) {
+    return customUrl.replace(/\/$/, '');
+  }
+
+  if (reqContext?.headers) {
+    const host = reqContext.headers['x-forwarded-host'] || reqContext.headers['host'];
+    if (host) {
+      const proto = reqContext.headers['x-forwarded-proto'] || reqContext.protocol || 'http';
+      return `${proto}://${host}`.replace(/\/$/, '');
+    }
+  }
+
+  if (process.env.FRONTEND_URL) {
+    return process.env.FRONTEND_URL.replace(/\/$/, '');
+  }
+
+  if (process.env.PUBLIC_WEB_URL) {
+    return process.env.PUBLIC_WEB_URL.replace(/\/$/, '');
+  }
+
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    const domain = process.env.RAILWAY_PUBLIC_DOMAIN.startsWith('http')
+      ? process.env.RAILWAY_PUBLIC_DOMAIN
+      : `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+    return domain.replace(/\/$/, '');
+  }
+
+  if (process.env.PUBLIC_URL) {
+    return process.env.PUBLIC_URL.replace(/\/$/, '');
+  }
+
+  const port = process.env.FRONTEND_PORT || '3000';
+  return `http://localhost:${port}`;
+}
+
+function getSystemBaseUrl(customUrl?: string): string {
+  return getApiBaseUrl(customUrl);
 }
 
 export class CommandExecutor {

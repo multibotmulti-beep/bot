@@ -1,6 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 import { isLauncher } from './environment/detector';
 import { bridge } from './bridge/UniversalBridge';
+import { ClientDatabase } from './clientDatabase';
 
 export const apiClient = async (
   endpoint: string,
@@ -16,6 +17,11 @@ export const apiClient = async (
       ? localStorage.getItem('session_token')
       : null;
 
+  const phone =
+    typeof window !== 'undefined'
+      ? localStorage.getItem('bot_user_phone')
+      : null;
+
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
@@ -23,6 +29,24 @@ export const apiClient = async (
 
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
+  }
+
+  if (!phone) {
+    defaultHeaders['X-Anonymous-Mode'] = 'true';
+    if (endpoint === '/execute' && options.body) {
+      try {
+        const bodyObj = JSON.parse(String(options.body));
+        const localResult = ClientDatabase.executeCommand(bodyObj.cmd, bodyObj.params);
+        console.log(`[ClientDB Debug] Modo anónimo: ejecutando [${bodyObj.cmd}] en BD local del navegador`);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => localResult,
+        } as Response;
+      } catch (e) {
+        console.error('[ClientDB Error]', e);
+      }
+    }
   }
 
   try {

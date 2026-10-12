@@ -1,6 +1,7 @@
 import { prisma } from '@repo/database';
 import { CapabilityRegistry } from '../registry';
 import { CapabilityContext, CapabilityResult } from '../types';
+import { getFrontendBaseUrl } from '../../command';
 
 CapabilityRegistry.register({
   key: 'AUTH_LOGIN',
@@ -38,7 +39,8 @@ CapabilityRegistry.register({
       },
     });
 
-    const loginUrl = `http://localhost:3000/login?phone=${encodeURIComponent(cleanPhone)}&token=${token}`;
+    const frontendBase = getFrontendBaseUrl(undefined, { headers: context.headers, protocol: context.protocol });
+    const loginUrl = `${frontendBase}/login?phone=${encodeURIComponent(cleanPhone)}&token=${token}`;
 
     return {
       success: true,

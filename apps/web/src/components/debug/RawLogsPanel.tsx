@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { apiClient } from '../../lib/api';
+import logger from '../../lib/logger';
 
 export default function RawLogsPanel({ onClose }: { onClose: () => void }) {
   const [response, setResponse] = useState<any>(null);
@@ -19,8 +20,10 @@ export default function RawLogsPanel({ onClose }: { onClose: () => void }) {
       });
       const result = await response.json();
       setResponse(result);
+      logger.info({ rawLogs: result }, 'Logs crudos detectados y cargados correctamente en RawLogsPanel');
     } catch (error) {
       setResponse({ error: String(error) });
+      logger.error({ error }, 'Error al obtener logs crudos en RawLogsPanel');
     } finally {
       setLoading(false);
     }

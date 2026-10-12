@@ -9,7 +9,21 @@ interface MenuOption {
   number: string;
   label: string;
   targetMenuId: string;
+  actionKey?: string;
 }
+
+const AVAILABLE_FUNCTIONS = [
+  { key: '', label: '⚡ Ninguna (Navegación estándar de menú)' },
+  { key: 'stock.manage', label: '📦 Gestión de Stock (Aislado por Negocio)' },
+  { key: 'turnos.book', label: '📅 Reserva de Turnos y Citas' },
+  { key: 'pedidos.create', label: '🛍️ Creación de Pedidos y Compras' },
+  { key: 'business.payment_info', label: '💳 Datos de Cobro (CBU / Alias / Banco)' },
+  { key: 'payments.checkout', label: '🛒 Checkout y Enlace de Pago' },
+  { key: 'faq.query', label: 'ℹ️ Preguntas Frecuentes y Horarios' },
+  { key: 'mis.reservas', label: '📋 Consultar Mis Turnos y Pedidos' },
+  { key: 'support.human', label: '👤 Derivar a Asesor Humano' },
+  { key: 'auth.login', label: '🔑 Autenticación / Magic Link' },
+];
 
 interface BotMenu {
   id: string;
@@ -315,33 +329,59 @@ export default function BotBuilderPanel() {
                         key={opt.id}
                         style={{
                           display: 'flex',
-                          gap: '10px',
-                          alignItems: 'center',
-                          padding: '10px',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          padding: '12px',
                           borderRadius: 'var(--radius-md)',
                           backgroundColor: 'var(--color-background)',
                           border: '1px solid var(--color-border)',
                         }}
                       >
-                        <input
-                          type="text"
-                          value={opt.number}
-                          onChange={(e) => handleUpdateOption(opt.id, { number: e.target.value })}
-                          style={{ width: '50px', padding: '8px', textAlign: 'center', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-                        />
-                        <input
-                          type="text"
-                          value={opt.label}
-                          onChange={(e) => handleUpdateOption(opt.id, { label: e.target.value })}
-                          placeholder="Texto de la opción (ej. Comprar producto)"
-                          style={{ flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-                        />
-                        <button
-                          onClick={() => handleDeleteOption(opt.id)}
-                          style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          ✕
-                        </button>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={opt.number}
+                            onChange={(e) => handleUpdateOption(opt.id, { number: e.target.value })}
+                            style={{ width: '50px', padding: '8px', textAlign: 'center', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                          />
+                          <input
+                            type="text"
+                            value={opt.label}
+                            onChange={(e) => handleUpdateOption(opt.id, { label: e.target.value })}
+                            placeholder="Texto de la opción (ej. Comprar producto)"
+                            style={{ flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                          />
+                          <button
+                            onClick={() => handleDeleteOption(opt.id)}
+                            style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '4px', color: 'var(--color-text-muted)' }}>
+                            Función Vinculada (Acción Automática):
+                          </label>
+                          <select
+                            value={opt.actionKey || ''}
+                            onChange={(e) => handleUpdateOption(opt.id, { actionKey: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: '6px 10px',
+                              fontSize: '0.8rem',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border)',
+                              background: 'var(--color-surface)',
+                              color: 'var(--color-text)',
+                            }}
+                          >
+                            {AVAILABLE_FUNCTIONS.map((fn) => (
+                              <option key={fn.key} value={fn.key}>
+                                {fn.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     ))
                   )}

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Dock from '@/components/Dock';
 import { panelRegistry } from '@/lib/panelRegistry';
 import { useUserSession } from '@/lib/userSession';
 import Icon from '@/components/Icon';
+import logger from '@/lib/logger';
 
 type View = keyof typeof panelRegistry;
 
@@ -16,6 +17,10 @@ export default function Page() {
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [whatsappLink, setWhatsappLink] = useState<string | null>(null);
   const [isAnonymous, setIsAnonymous] = useState(false);
+
+  useEffect(() => {
+    logger.info({ currentView }, 'Panel completo detectado y cargado en la interfaz');
+  }, [currentView]);
 
   const handleInitiateWhatsAppAuth = async (e: React.FormEvent) => {
     e.preventDefault();

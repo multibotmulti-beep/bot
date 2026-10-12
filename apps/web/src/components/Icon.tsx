@@ -83,6 +83,16 @@ export default function Icon({ name, style, ...props }: IconProps) {
           <circle cx="18.5" cy="18.5" r="2.5" />
         </svg>
       );
+    case 'bot':
+    case 'robot':
+      return (
+        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={style} {...props}>
+          <rect x="3" y="11" width="18" height="10" rx="2" />
+          <circle cx="9" cy="16" r="1" />
+          <circle cx="15" cy="16" r="1" />
+          <path d="M12 2v3M9 11V7a3 3 0 0 1 6 0v4" />
+        </svg>
+      );
     case 'chat':
       return (
         <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={style} {...props}>

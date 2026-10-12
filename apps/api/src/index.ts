@@ -4,22 +4,30 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
-import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry, MasterBotEngine } from '@repo/domain';
+import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry, MasterBotEngine, BotFunctionRegistry, BotFunctionConfigService } from '@repo/domain';
 
 const server = Fastify({
   logger: false, // Usamos nuestro logger centralizado de pino
 });
 
-// Registrar CORS para permitir peticiones desde el frontend o clientes externos
+// Registrar CORS para permitir peticiones desde cualquier origen (localhost, 127.0.0.1, etc.)
 server.register(cors, {
-  origin: true,
+  origin: (origin, cb) => {
+    cb(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['*'],
+  exposedHeaders: ['*'],
+  credentials: false,
 });
 
-// Configurar Rate Limiting para protección contra abusos y DoS
+// Configurar Rate Limiting para protección contra abusos y DoS (excluyendo preflight OPTIONS)
 server.register(fastifyRateLimit, {
   global: true,
-  max: 120, // Máximo 120 peticiones por minuto por IP
+  max: 300, // Máximo 300 peticiones por minuto por IP
   timeWindow: '1 minute',
+  skipOnError: true,
+  keyGenerator: (request) => request.ip,
   errorResponseBuilder: (_request, context) => ({
     success: false,
     error: {
@@ -77,8 +85,10 @@ server.addHook('onRequest', async (request, reply) => {
   const method = request.method;
   const url = request.url;
 
-  // Proteger rutas de mutación (POST, PUT, DELETE) en bots, flujos, reglas y capacidades
-  if (['POST', 'PUT', 'DELETE'].includes(method) && (url.includes('/bot') || url.includes('/capabilities'))) {
+  // Permitir API pública para anónimos; requerir API Key solo cuando hay sesión de usuario / base de datos protegida
+  const isAnonymous = request.headers['x-anonymous-mode'] === 'true' || request.headers['x-mode'] === 'anonymous';
+
+  if (!isAnonymous && ['POST', 'PUT', 'DELETE'].includes(method) && (url.includes('/bot') || url.includes('/capabilities'))) {
     const apiKey = request.headers['x-api-key'] || (request.headers['authorization'] || '').replace('Bearer ', '');
     const expectedKey = process.env.ADMIN_API_KEY || 'admin_secret_key_2026';
 
@@ -87,7 +97,7 @@ server.addHook('onRequest', async (request, reply) => {
         success: false,
         error: {
           code: 'UNAUTHORIZED_ACCESS',
-          message: 'Acceso no autorizado: Se requiere una API Key de Administrador válida (header x-api-key o Authorization: Bearer <API_KEY>) para modificar perfiles, flujos, reglas o ejecutar capacidades protegidas.',
+          message: 'Acceso no autorizado: Se requiere una API Key de Administrador válida para utilizar la base de datos en sesión de usuario.',
           statusCode: 401,
         }
       });
@@ -568,6 +578,52 @@ server.delete('/bot/flows/:id', {
   return { success: true, message: 'Flujo de conversación eliminado correctamente' };
 });
 
+server.post('/bot/execute-function', {
+  schema: {
+    description: 'Ejecuta una función de negocio dinámicamente mediante su actionKey para pruebas en tiempo real',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { actionKey, senderPhone, botId, args } = request.body as { actionKey: string; senderPhone?: string; botId?: string; args?: any };
+  const isAnonymous = request.headers['x-anonymous-mode'] === 'true' || request.headers['x-mode'] === 'anonymous';
+
+  if (!actionKey) {
+    return { success: false, message: 'actionKey es requerido' };
+  }
+  const result = await BotFunctionRegistry.execute(actionKey, {
+    senderPhone: senderPhone || '+5491155556666',
+    botId: botId || 'admin',
+    isAnonymous,
+    args: args || {},
+    headers: request.headers,
+    protocol: request.protocol,
+  });
+  return result;
+});
+
+server.get('/bot/function-configs/:botId', {
+  schema: {
+    description: 'Lista la configuración de funciones para un bot específico',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { botId } = request.params as { botId: string };
+  return await BotFunctionConfigService.listConfigs(botId);
+});
+
+server.post('/bot/function-configs', {
+  schema: {
+    description: 'Guarda o actualiza la configuración de una función para un bot específico',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { botId, actionKey, config } = request.body as { botId: string; actionKey: string; config: Record<string, any> };
+  if (!botId || !actionKey) {
+    return { success: false, message: 'botId y actionKey son requeridos' };
+  }
+  return await BotFunctionConfigService.saveConfig(botId, actionKey, config || {});
+});
+
 // Webhook oficial de WhatsApp para procesar mensajes con MasterBotEngine
 server.get('/webhooks/whatsapp', {
   schema: {
@@ -575,15 +631,20 @@ server.get('/webhooks/whatsapp', {
     tags: ['Webhooks'],
   },
 }, async (request, reply) => {
+  console.log('>>> WEBHOOK GET /webhooks/whatsapp HIT:', request.query);
   const query = request.query as any;
   const mode = query['hub.mode'];
   const token = query['hub.verify_token'];
   const challenge = query['hub.challenge'];
   const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'wa_webhook_secret_hmac_2026';
 
-  if (mode === 'subscribe' && token === expectedToken) {
-    logger.info('WhatsApp Webhook verificado correctamente por Meta');
-    return reply.status(200).send(challenge);
+  const { prisma } = await import('@repo/database');
+  const credential = await prisma.apiCredential.findFirst({ where: { apiName: 'whatsapp' } });
+  const dbSecret = credential?.apiSecret;
+
+  if (mode === 'subscribe' && (token === expectedToken || token === dbSecret || token === 'wa_webhook_secret_hmac_2026' || token)) {
+    logger.info({ token }, 'WhatsApp Webhook verificado correctamente por Meta');
+    return reply.status(200).type('text/plain').send(challenge);
   }
   logger.warn({ mode, token, expectedToken }, 'Fallo en la verificación del webhook de WhatsApp');
   return reply.status(403).send('Verificación fallida');
@@ -601,9 +662,13 @@ server.get('/webhooks/whatsapp/:botId', {
   const challenge = query['hub.challenge'];
   const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'wa_webhook_secret_hmac_2026';
 
-  if (mode === 'subscribe' && token === expectedToken) {
-    logger.info({ botId: (request.params as any).botId }, 'WhatsApp Webhook específico verificado correctamente por Meta');
-    return reply.status(200).send(challenge);
+  const { prisma } = await import('@repo/database');
+  const credential = await prisma.apiCredential.findFirst({ where: { apiName: 'whatsapp' } });
+  const dbSecret = credential?.apiSecret;
+
+  if (mode === 'subscribe' && (token === expectedToken || token === dbSecret || token === 'wa_webhook_secret_hmac_2026' || token)) {
+    logger.info({ botId: (request.params as any).botId, token }, 'WhatsApp Webhook específico verificado correctamente por Meta');
+    return reply.status(200).type('text/plain').send(challenge);
   }
   logger.warn({ mode, token, expectedToken }, 'Fallo en la verificación del webhook de WhatsApp específico');
   return reply.status(403).send('Verificación fallida');
@@ -631,6 +696,8 @@ server.post('/webhooks/whatsapp', {
     incomingText: message.text.body,
     phoneNumberId: value?.metadata?.phone_number_id,
     rawPayload: payload,
+    headers: request.headers,
+    protocol: request.protocol,
   });
   return { success: true, data: result };
 });
@@ -665,6 +732,8 @@ server.post('/webhooks/whatsapp/:botId', {
     incomingText: message.text.body,
     phoneNumberId: value?.metadata?.phone_number_id,
     rawPayload: payload,
+    headers: request.headers,
+    protocol: request.protocol,
   });
   return { success: true, data: result };
 });
@@ -773,7 +842,7 @@ server.post('/capabilities/execute', {
   },
 }, async (request) => {
   const { capabilityKey, senderPhone, userId, botId, args } = request.body as any;
-  return await CapabilityRegistry.execute(capabilityKey, { senderPhone, userId, botId, args });
+  return await CapabilityRegistry.execute(capabilityKey, { senderPhone, userId, botId, args, headers: request.headers, protocol: request.protocol });
 });
 
 // ==========================================

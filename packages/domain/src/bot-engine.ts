@@ -17,6 +17,8 @@ export interface IncomingMessageContext {
   incomingText: string;
   phoneNumberId?: string;
   rawPayload?: any;
+  headers?: Record<string, any>;
+  protocol?: string;
 }
 
 /**
@@ -40,14 +42,18 @@ export abstract class BaseBotEngine {
 
   public async sendResponseToWhatsApp(senderPhone: string, text: string, phoneNumberId?: string) {
     const credential = await this.getCredentialFromDb('whatsapp');
-    if (!credential || !credential.apiKey) {
-      logger.error('No se encontraron credenciales de WhatsApp en la base de datos');
+    const dbToken = credential?.apiKey;
+    const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_ACCESS_TOKEN !== 'EAAG_MOCK_WHATSAPP_TOKEN_2026')
+      ? process.env.WHATSAPP_ACCESS_TOKEN
+      : (dbToken || process.env.WHATSAPP_ACCESS_TOKEN);
+
+    if (!accessToken) {
+      logger.error('No se encontraron credenciales de WhatsApp (ni en BD ni en variables de entorno)');
       return false;
     }
 
-    const accessToken = credential.apiKey;
-    let targetPhoneId = phoneNumberId || BotConfig.defaultPhoneNumberId;
-    if (!targetPhoneId && credential.targetUrl) {
+    let targetPhoneId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || BotConfig.defaultPhoneNumberId;
+    if (!targetPhoneId && credential?.targetUrl) {
       const match = credential.targetUrl.match(/\/v[\d.]+\/(\d+)\/messages/);
       if (match) targetPhoneId = match[1];
     }

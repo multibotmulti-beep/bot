@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import logger from '@/lib/logger';
 
 interface DockProps {
-  onNavigate: (view: 'home' | 'analytics' | 'settings' | 'test' | 'whatsapp' | 'resources') => void;
+  onNavigate: (view: 'home' | 'analytics' | 'settings' | 'test' | 'whatsapp' | 'resources' | 'bots' | 'function-config') => void;
   activeView: string;
 }
 
@@ -24,7 +24,7 @@ export default function Dock({ onNavigate, activeView }: DockProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleNavigate = (view: 'home' | 'analytics' | 'settings' | 'test' | 'whatsapp' | 'resources') => {
+  const handleNavigate = (view: 'home' | 'analytics' | 'settings' | 'test' | 'whatsapp' | 'resources' | 'bots' | 'function-config') => {
     logger.info({ view }, 'Navegando a vista desde Dock');
     onNavigate(view);
   };
@@ -128,6 +128,14 @@ export default function Dock({ onNavigate, activeView }: DockProps) {
         <Icon name="help" style={iconStyle} />
       </button>
 
+      <button
+        onClick={() => handleNavigate('bots')}
+        aria-label="Gestión de Bots"
+        style={activeView === 'bots' ? activeButtonStyle : defaultButtonStyle}
+      >
+        <Icon name="bot" style={{ ...iconStyle, color: '#ffffff' }} />
+      </button>
+
       <div ref={menuRef} style={{ position: 'relative' }}>
         <button
           onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -153,6 +161,17 @@ export default function Dock({ onNavigate, activeView }: DockProps) {
               boxShadow: 'var(--shadow-soft)',
             }}
           >
+            <button
+              onClick={() => {
+                handleNavigate('function-config');
+                setIsMenuOpen(false);
+              }}
+              style={menuButtonStyle}
+            >
+              <Icon name="bot" style={{ width: '20px', height: '20px', color: 'var(--color-primary)' }} />
+              <span>⚙️ Configurar Funciones</span>
+            </button>
+
             <button
               onClick={() => {
                 handleNavigate('settings');
