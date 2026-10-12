@@ -6,6 +6,7 @@ import { panelRegistry } from '@/lib/panelRegistry';
 import { useUserSession } from '@/lib/userSession';
 import Icon from '@/components/Icon';
 import logger from '@/lib/logger';
+import { apiFetch } from '@/lib/apiClient';
 
 type View = keyof typeof panelRegistry;
 
@@ -34,12 +35,10 @@ export default function Page() {
     setWhatsappLink(null);
 
     try {
-      const response = await fetch('http://localhost:4000/api/auth/whatsapp/initiate', {
+      const data = await apiFetch('/api/auth/whatsapp/initiate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: authInputPhone.trim() }),
       });
-      const data = await response.json();
       if (data.success && data.data?.whatsappLink) {
         setWhatsappLink(data.data.whatsappLink);
         setAuthMessage('¡Enlace generado! Envía el mensaje por WhatsApp al bot para verificar tu número o haz clic en el botón de abajo.');

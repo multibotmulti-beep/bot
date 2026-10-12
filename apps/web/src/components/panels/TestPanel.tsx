@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import logger from '@/lib/logger';
 import Icon from '@/components/Icon';
 import { useUserSession } from '@/lib/userSession';
-import { BotApiClient } from '@/lib/apiClient';
+import { BotApiClient, apiFetch } from '@/lib/apiClient';
 
 interface MenuOption {
   number: string;
@@ -17,11 +17,10 @@ interface MenuOption {
 export default function TestPanel() {
   const { userPhone, isLoggedIn, logout } = useUserSession();
   const [userBots, setUserBots] = useState<any[]>([]);
-
   const [botName, setBotName] = useState('Asistente Comercial Pro');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [welcomeMessage, setWelcomeMessage] = useState('¡Hola! Bienvenido al asistente virtual. Responde con el número de la opción deseada:');
-  
+
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -29,8 +28,7 @@ export default function TestPanel() {
   useEffect(() => {
     if (isLoggedIn && userPhone) {
       setPhoneNumber(userPhone);
-      fetch(`http://localhost:4000/bot/profiles?phoneNumber=${encodeURIComponent(userPhone)}`)
-        .then((res) => res.json())
+      apiFetch(`/bot/profiles?phoneNumber=${encodeURIComponent(userPhone)}`)
         .then((data) => {
           if (data.success && data.data) {
             setUserBots(data.data);
@@ -244,9 +242,8 @@ export default function TestPanel() {
     setSaveStatus(null);
 
     try {
-      const response = await fetch('http://localhost:4000/bot/profiles', {
+      const data = await apiFetch('/bot/profiles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phoneNumber: targetPhone.trim(),
           name: botName.trim(),
@@ -254,7 +251,6 @@ export default function TestPanel() {
           menuOptions: options.map(opt => ({ label: opt.label, option: opt.number, subOptions: opt.subOptions || [] })),
         }),
       });
-      const data = await response.json();
       if (data.success) {
         setSaveStatus(`¡Bot "${botName}" guardado con éxito para el número ${targetPhone}!\nID único: ${data.data.botId}`);
         logger.info({ botId: data.data.botId, targetPhone }, 'Bot guardado en base de datos');
