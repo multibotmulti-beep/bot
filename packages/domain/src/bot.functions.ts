@@ -27,7 +27,7 @@ export class BotFunctionRegistry {
     return this.functions.get(actionKey);
   }
 
-  static async execute(actionKey: string, context: { senderPhone: string; botId: string; args?: any }) {
+  static async execute(actionKey: string, context: { senderPhone: string; botId: string; args?: any; isAnonymous?: boolean; headers?: Record<string, any>; protocol?: string }) {
     const mapping = this.get(actionKey);
     if (!mapping) {
       // Intentar buscar en CapabilityRegistry global si no está en funciones locales

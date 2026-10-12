@@ -2,6 +2,8 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const REQUEST_TIMEOUT_MS = 12000; // 12 segundos de espera máxima
 
+import { ClientDatabase } from './clientDatabase';
+
 interface RequestOptions extends RequestInit {
   timeout?: number;
 }

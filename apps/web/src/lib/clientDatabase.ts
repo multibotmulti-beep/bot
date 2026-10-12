@@ -97,5 +97,18 @@ export const ClientStorage = {
     db.tables.settings[key] = { ...(db.tables.settings[key] || {}), ...value };
     saveDatabase(db);
     return db.tables.settings[key];
+  },
+
+  executeCommand(cmd: string, params: any) {
+    const db = getDatabase();
+    if (cmd === 'bot.save' || cmd === 'bot.create') {
+      const record = { id: 'bot_' + Date.now(), ...params };
+      db.tables.bots.push(record);
+      saveDatabase(db);
+      return { success: true, data: record };
+    }
+    return { success: true, message: `Comando ${cmd} ejecutado localmente`, data: params };
   }
 };
+
+export const ClientDatabase = ClientStorage;
