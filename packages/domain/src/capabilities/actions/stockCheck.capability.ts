@@ -1,5 +1,6 @@
 import { DomainCapability, CapabilityContext, CapabilityResult } from '../types';
 import { CapabilityRegistry } from '../registry';
+import { BotFunctionConfigService } from '../../function-config';
 
 export const StockCheckCapability: DomainCapability = {
   key: 'stock.check',
@@ -15,6 +16,16 @@ export const StockCheckCapability: DomainCapability = {
     });
 
     if (memories.length === 0) {
+      const stockCfg = await BotFunctionConfigService.getConfig(botId, 'stock.manage');
+      if (stockCfg.success && stockCfg.config && stockCfg.config.product) {
+        const cfg = stockCfg.config;
+        return {
+          success: true,
+          message: `📦 *Consulta de Stock (Configuración del Bot)*\n\n1. *${cfg.product}* (${cfg.categoria || 'General'}) - Stock: 🟢 **${cfg.qty || 10} unidades** - Precio: $${cfg.precio || '0'}`,
+          data: { stock: [cfg] }
+        };
+      }
+
       return {
         success: true,
         message: `📦 *Consulta de Stock*\n\nNo hay productos registrados en el inventario de este bot en la base de datos.`,
