@@ -27,7 +27,10 @@ export class BotFunctionConfigService {
   /**
    * Obtiene la configuración de una función para un bot específico
    */
-  static async getConfig(botId: string, actionKey: string) {
+  static async getConfig(botId: string, actionKey: string, localConfig?: Record<string, any>) {
+    if (localConfig && Object.keys(localConfig).length > 0) {
+      return { success: true, config: localConfig };
+    }
     try {
       const record = await prisma.botFunctionConfig.findUnique({
         where: { botId_actionKey: { botId, actionKey } },

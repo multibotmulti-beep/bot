@@ -157,7 +157,7 @@ export class BotFunctionRegistry {
       actionKey: 'turnos.book',
       description: 'Reserva un turno médico, técnico o de servicios, registrándolo en la memoria con control temporal',
       handler: async (ctx) => {
-        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'turnos.book');
+        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'turnos.book', ctx.args?.localConfig);
         const horariosDisponibles = configRes.config?.horarios;
         if (!horariosDisponibles) {
           return {
@@ -261,7 +261,7 @@ export class BotFunctionRegistry {
       actionKey: 'stock.manage',
       description: 'Registra o actualiza el inventario de stock aislado para este bot/negocio',
       handler: async (ctx) => {
-        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage');
+        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage', ctx.args?.localConfig);
         const productName = ctx.args?.product || configRes.config?.product || 'Producto General';
         const qty = ctx.args?.qty || configRes.config?.qty || 10;
         await BotMemoryService.record({
@@ -283,7 +283,7 @@ export class BotFunctionRegistry {
       actionKey: 'business.payment_info',
       description: 'Muestra los datos de cobro del negocio (Alias, CBU, Titular, Link de pago) configurados para este perfil',
       handler: async (ctx) => {
-        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'business.payment_info');
+        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'business.payment_info', ctx.args?.localConfig);
         const bizData = configRes.config;
         if (!bizData || (!bizData.cbu && !bizData.alias && !bizData.banco)) {
           return {

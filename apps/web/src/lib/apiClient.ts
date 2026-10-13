@@ -160,9 +160,10 @@ export const BotApiClient = {
   },
 
   async executeFunction(actionKey: string, senderPhone: string, botId?: string) {
+    const localConfig = typeof window !== 'undefined' ? ClientDatabase.getFunctionConfig(botId || 'admin', actionKey) : null;
     return await apiFetch('/bot/execute-function', {
       method: 'POST',
-      body: JSON.stringify({ actionKey, senderPhone, botId }),
+      body: JSON.stringify({ actionKey, senderPhone, botId, localConfig }),
     });
   },
 };
