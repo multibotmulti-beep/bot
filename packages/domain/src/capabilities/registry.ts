@@ -19,6 +19,7 @@ export class CapabilityRegistry {
       name: c.name,
       description: c.description,
       parameters: c.parameters || {},
+      configSchema: c.configSchema || [],
       exampleUsage: c.exampleUsage || `POST /capabilities/execute con { "capabilityKey": "${c.key}" }`,
     }));
   }

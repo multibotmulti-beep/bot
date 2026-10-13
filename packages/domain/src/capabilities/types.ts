@@ -16,11 +16,22 @@ export interface CapabilityResult {
   nextStep?: string;
 }
 
+export interface ConfigFieldSchema {
+  key: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'textarea';
+  defaultValue?: any;
+  options?: { label: string; value: any }[];
+  required?: boolean;
+  description?: string;
+}
+
 export interface DomainCapability {
   key: string;
   name: string;
   description: string;
   parameters?: Record<string, string>;
+  configSchema?: ConfigFieldSchema[];
   exampleUsage?: string;
   execute: (context: CapabilityContext) => Promise<CapabilityResult>;
 }

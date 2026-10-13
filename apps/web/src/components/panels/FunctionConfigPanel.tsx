@@ -15,6 +15,7 @@ interface DynamicField {
 interface FunctionItem {
   actionKey: string;
   description: string;
+  configSchema?: { key: string; label: string; type: string; defaultValue?: any }[];
   suggestedFields?: string[];
 }
 
@@ -73,12 +74,14 @@ export default function FunctionConfigPanel() {
           loadedFunctions = data.functions.map((f: any) => ({
             actionKey: f.actionKey,
             description: f.description || 'Función de negocio ejecutable',
+            configSchema: f.configSchema || [],
             suggestedFields: FUNCTION_SUGGESTIONS[f.actionKey] || [],
           }));
         } else if (data.success && Array.isArray(data.capabilities)) {
           loadedFunctions = data.capabilities.map((c: any) => ({
             actionKey: c.key,
             description: c.description || c.name,
+            configSchema: c.configSchema || [],
             suggestedFields: [],
           }));
         }
@@ -141,6 +144,9 @@ export default function FunctionConfigPanel() {
         loadedConfig = ClientDatabase.getFunctionConfig(selectedBotId, selectedFunction);
       }
 
+      const currentFn = availableFunctions.find(f => f.actionKey === selectedFunction);
+      const schema = currentFn?.configSchema || [];
+
       // Transformar configuración en lista de campos dinámicos
       if (loadedConfig && Object.keys(loadedConfig).length > 0) {
         const dynamicList: DynamicField[] = Object.entries(loadedConfig).map(([key, val]) => ({
@@ -148,6 +154,8 @@ export default function FunctionConfigPanel() {
           value: typeof val === 'object' ? JSON.stringify(val) : String(val),
         }));
         setFields(dynamicList);
+      } else if (schema.length > 0) {
+        setFields(schema.map((s) => ({ key: s.key, value: s.defaultValue !== undefined ? String(s.defaultValue) : '' })));
       } else {
         // Todo en blanco: si la función tiene sugerencias de campos, inicializar en blanco
         const suggested = FUNCTION_SUGGESTIONS[selectedFunction] || [];
