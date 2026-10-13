@@ -601,6 +601,17 @@ server.post('/bot/execute-function', {
   return result;
 });
 
+server.get('/bot/functions', {
+  schema: {
+    description: 'Lista todas las funciones disponibles para bots dinámicamente',
+    tags: ['Bots & AI'],
+  },
+}, async () => {
+  const functions = BotFunctionRegistry.getAll();
+  const capabilities = CapabilityRegistry.getAll();
+  return { success: true, functions, capabilities };
+});
+
 server.get('/bot/function-configs/:botId', {
   schema: {
     description: 'Lista la configuración de funciones para un bot específico',

@@ -108,6 +108,33 @@ export const ClientStorage = {
       return { success: true, data: record };
     }
     return { success: true, message: `Comando ${cmd} ejecutado localmente`, data: params };
+  },
+
+  getFunctionConfig(botId: string, actionKey: string) {
+    const db = getDatabase();
+    return db.tables.settings[`func_cfg_${botId}_${actionKey}`] || null;
+  },
+
+  saveFunctionConfig(botId: string, actionKey: string, config: any) {
+    const db = getDatabase();
+    db.tables.settings[`func_cfg_${botId}_${actionKey}`] = config;
+    saveDatabase(db);
+    return config;
+  },
+
+  listFunctionConfigs(botId: string) {
+    const db = getDatabase();
+    const prefix = `func_cfg_${botId}_`;
+    const configs: { actionKey: string; config: any }[] = [];
+    for (const [k, v] of Object.entries(db.tables.settings)) {
+      if (k.startsWith(prefix)) {
+        configs.push({
+          actionKey: k.substring(prefix.length),
+          config: v,
+        });
+      }
+    }
+    return configs;
   }
 };
 

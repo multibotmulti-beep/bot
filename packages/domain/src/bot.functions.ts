@@ -27,6 +27,13 @@ export class BotFunctionRegistry {
     return this.functions.get(actionKey);
   }
 
+  static getAll(): { actionKey: string; description: string }[] {
+    return Array.from(this.functions.values()).map(f => ({
+      actionKey: f.actionKey,
+      description: f.description,
+    }));
+  }
+
   static async execute(actionKey: string, context: { senderPhone: string; botId: string; args?: any; isAnonymous?: boolean; headers?: Record<string, any>; protocol?: string }) {
     const mapping = this.get(actionKey);
     if (!mapping) {
