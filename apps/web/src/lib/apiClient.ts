@@ -1,5 +1,20 @@
 // Cliente API robusto para conectar el Frontend con el Backend con manejo de espera/timeout e integración de logs
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    // En dominios remotos o de producción (Railway, etc.), SIEMPRE usar ruta relativa ''
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return '';
+    }
+    // En desarrollo local en el puerto 3000 directo, apuntar a 4000
+    if (window.location.port === '3000') {
+      return 'http://localhost:4000';
+    }
+    return '';
+  }
+  return '';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 const REQUEST_TIMEOUT_MS = 12000; // 12 segundos de espera máxima
 
 import { ClientDatabase } from './clientDatabase';
