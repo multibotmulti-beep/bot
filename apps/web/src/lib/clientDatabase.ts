@@ -112,7 +112,10 @@ export const ClientStorage = {
 
   getFunctionConfig(botId: string, actionKey: string) {
     const db = getDatabase();
-    return db.tables.settings[`func_cfg_${botId}_${actionKey}`] || null;
+    return db.tables.settings[`func_cfg_${botId}_${actionKey}`] || 
+           db.tables.settings[`func_cfg_local-bot_${actionKey}`] || 
+           db.tables.settings[`func_cfg_admin_${actionKey}`] || 
+           null;
   },
 
   saveFunctionConfig(botId: string, actionKey: string, config: any) {
@@ -124,14 +127,25 @@ export const ClientStorage = {
 
   listFunctionConfigs(botId: string) {
     const db = getDatabase();
-    const prefix = `func_cfg_${botId}_`;
-    const configs: { actionKey: string; config: any }[] = [];
+    let prefix = `func_cfg_${botId}_`;
+    let configs: { actionKey: string; config: any }[] = [];
     for (const [k, v] of Object.entries(db.tables.settings)) {
       if (k.startsWith(prefix)) {
         configs.push({
           actionKey: k.substring(prefix.length),
           config: v,
         });
+      }
+    }
+    if (configs.length === 0) {
+      prefix = 'func_cfg_local-bot_';
+      for (const [k, v] of Object.entries(db.tables.settings)) {
+        if (k.startsWith(prefix)) {
+          configs.push({
+            actionKey: k.substring(prefix.length),
+            config: v,
+          });
+        }
       }
     }
     return configs;

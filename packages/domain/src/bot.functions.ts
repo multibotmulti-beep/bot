@@ -12,7 +12,7 @@ import { BotFunctionConfigService } from './function-config';
 export interface BotFunctionMapping {
   actionKey: string;
   description: string;
-  handler: (context: { senderPhone: string; botId: string; args?: any; headers?: Record<string, any>; protocol?: string }) => Promise<any>;
+  handler: (context: { senderPhone: string; botId: string; args?: any; headers?: Record<string, any>; protocol?: string; localConfig?: any }) => Promise<any>;
 }
 
 export class BotFunctionRegistry {
@@ -34,7 +34,7 @@ export class BotFunctionRegistry {
     }));
   }
 
-  static async execute(actionKey: string, context: { senderPhone: string; botId: string; args?: any; isAnonymous?: boolean; headers?: Record<string, any>; protocol?: string }) {
+  static async execute(actionKey: string, context: { senderPhone: string; botId: string; args?: any; isAnonymous?: boolean; headers?: Record<string, any>; protocol?: string; localConfig?: any }) {
     const mapping = this.get(actionKey);
     if (!mapping) {
       // Intentar buscar en CapabilityRegistry global si no está en funciones locales
@@ -208,15 +208,28 @@ export class BotFunctionRegistry {
       actionKey: 'stock.check',
       description: 'Consulta el stock e inventario actual de productos en el negocio',
       handler: async (ctx) => {
+        logger.info({ ctx }, 'RAW DEBUG: Ejecutando stock.check con contexto');
         const { prisma } = await import('@repo/database');
         const memories = await prisma.botMemory.findMany({
           where: { botId: ctx.botId, category: 'stock' },
           orderBy: { createdAt: 'desc' },
           take: 10,
         });
+
         if (memories.length === 0) {
+          const stockCfg = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage', ctx.localConfig);
+          logger.info({ stockCfg, botId: ctx.botId, localConfig: ctx.localConfig }, 'RAW DEBUG: Resultado de getConfig en stock.check');
+          if (stockCfg.success && stockCfg.config && stockCfg.config.product) {
+            const cfg = stockCfg.config;
+            return {
+              success: true,
+              message: `📦 *Consulta de Stock (Configuración)*\n\n1. *${cfg.product}* (${cfg.categoria || 'General'}) - Stock: 🟢 **${cfg.qty || 10} unidades** - Precio: $${cfg.precio || '0'}`,
+              data: { stock: [cfg] }
+            };
+          }
           return { success: true, message: `📦 *Consulta de Stock*\n\nNo hay productos registrados en el inventario de este bot en la base de datos.` };
         }
+
         const listText = memories.map((m: any, idx: number) => {
           const payload = m.payload as any;
           return `${idx + 1}. *${payload?.producto || m.title}* - Stock: 🟢 **${payload?.cantidad || 'N/A'}**`;
@@ -261,7 +274,7 @@ export class BotFunctionRegistry {
       actionKey: 'stock.manage',
       description: 'Registra o actualiza el inventario de stock aislado para este bot/negocio',
       handler: async (ctx) => {
-        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage', ctx.args?.localConfig);
+        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage', ctx.localConfig || ctx.args?.localConfig);
         const productName = ctx.args?.product || configRes.config?.product || 'Producto General';
         const qty = ctx.args?.qty || configRes.config?.qty || 10;
         await BotMemoryService.record({
@@ -283,7 +296,7 @@ export class BotFunctionRegistry {
       actionKey: 'business.payment_info',
       description: 'Muestra los datos de cobro del negocio (Alias, CBU, Titular, Link de pago) configurados para este perfil',
       handler: async (ctx) => {
-        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'business.payment_info', ctx.args?.localConfig);
+        const configRes = await BotFunctionConfigService.getConfig(ctx.botId, 'business.payment_info', ctx.localConfig || ctx.args?.localConfig);
         const bizData = configRes.config;
         if (!bizData || (!bizData.cbu && !bizData.alias && !bizData.banco)) {
           return {

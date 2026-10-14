@@ -46,13 +46,26 @@ export default function FunctionConfigPanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 1. Cargar bots disponibles (desde backend o almacenamiento local)
+  // 1. Cargar el bot activo de la sesión actual y restringir la lista exclusivamente a ese bot
   useEffect(() => {
     BotApiClient.getProfiles()
       .then((profiles) => {
+        const activeSessionBot = typeof window !== 'undefined' ? sessionStorage.getItem('active_bot_id') : null;
         if (profiles && profiles.length > 0) {
-          setBots(profiles);
-          setSelectedBotId(profiles[0].botId || profiles[0].id);
+          let scopedProfiles = profiles;
+          if (activeSessionBot) {
+            scopedProfiles = profiles.find((p: any) => (p.botId || p.id) === activeSessionBot)
+              ? [profiles.find((p: any) => (p.botId || p.id) === activeSessionBot)]
+              : [profiles[profiles.length - 1]];
+          } else {
+            scopedProfiles = [profiles[profiles.length - 1]];
+          }
+          setBots(scopedProfiles);
+          const targetId = scopedProfiles[0]?.botId || scopedProfiles[0]?.id || 'admin';
+          setSelectedBotId(targetId);
+          if (typeof window !== 'undefined' && scopedProfiles[0]) {
+            sessionStorage.setItem('active_bot_id', targetId);
+          }
         } else {
           setBots([{ id: 'admin', botId: 'admin', name: 'Bot Principal' }]);
           setSelectedBotId('admin');

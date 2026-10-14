@@ -27,9 +27,14 @@ export class BotFunctionConfigService {
   /**
    * Obtiene la configuración de una función para un bot específico
    */
-  static async getConfig(botId: string, actionKey: string, localConfig?: Record<string, any>) {
+  static async getConfig(botId: string, actionKey: string, localConfig?: Record<string, any>, localConfigs?: Record<string, Record<string, any>>) {
     if (localConfig && Object.keys(localConfig).length > 0) {
       return { success: true, config: localConfig };
+    }
+    if (localConfigs) {
+      if (localConfigs[actionKey]) return { success: true, config: localConfigs[actionKey] };
+      if (actionKey === 'stock.check' && localConfigs['stock.manage']) return { success: true, config: localConfigs['stock.manage'] };
+      if (actionKey === 'stock.manage' && localConfigs['stock.check']) return { success: true, config: localConfigs['stock.check'] };
     }
     try {
       const record = await prisma.botFunctionConfig.findUnique({

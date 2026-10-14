@@ -1,16 +1,5 @@
 // Cliente API robusto para conectar el Frontend con el Backend con manejo de espera/timeout e integración de logs
 const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    // En dominios remotos o de producción (Railway, etc.), SIEMPRE usar ruta relativa ''
-    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return '';
-    }
-    // En desarrollo local en el puerto 3000 directo, apuntar a 4000
-    if (window.location.port === '3000') {
-      return 'http://localhost:4000';
-    }
-    return '';
-  }
   return '';
 };
 
@@ -42,6 +31,7 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
 
     const response = await fetch(url, {
       ...fetchOptions,
+      credentials: 'include',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
@@ -86,24 +76,28 @@ export async function reportLogToBackend(level: 'debug' | 'info' | 'warn' | 'err
   }
 }
 
-// Servicios específicos para Bots
+// Servicios específicos para Bots utilizando exclusivamente la Base de Datos Real
 export const BotApiClient = {
   async getProfiles() {
-    const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
-    if (!phone) {
-      return [{ id: 'local-bot', name: 'Bot Local (Navegador)', type: 'custom', isPublic: true }];
+    try {
+      const res = await apiFetch('/bot/profiles');
+      if (res.success && res.data && res.data.length > 0) {
+        return res.data;
+      }
+    } catch {
+      // Si no hay perfiles, autogenerar un perfil anónimo en la base de datos real
     }
-    const res = await apiFetch('/bot/profiles');
-    return res.data || [];
+    try {
+      const anonRes = await apiFetch('/bot/profiles/anonymous', { method: 'POST' });
+      if (anonRes.success && anonRes.profile) {
+        return [anonRes.profile];
+      }
+    } catch {}
+    return [{ id: 'admin', botId: 'admin', name: 'Bot Admin Central', type: 'system', isPublic: true }];
   },
 
   async createBotWithMenus(botData: { name: string; description: string; welcomeMessage: string; options: any[] }) {
-    const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
-    if (!phone) {
-      return ClientDatabase.executeCommand('bot.save', botData);
-    }
-
-    // 1. Crear perfil de bot
+    // 1. Crear perfil de bot en la base de datos real
     const profileRes = await apiFetch('/bot/profiles', {
       method: 'POST',
       body: JSON.stringify({
@@ -113,15 +107,16 @@ export const BotApiClient = {
         type: 'custom',
         isPublic: true,
         isActive: true,
+        welcomeMessage: botData.welcomeMessage,
       }),
     });
 
     const profileId = profileRes.data?.id;
-    if (!profileId) throw new Error('No se pudo crear el perfil del bot en el backend.');
+    if (!profileId) throw new Error('No se pudo crear el perfil del bot en la base de datos real.');
 
-    // 2. Crear flujos de menús y submenús en el backend
+    // 2. Crear flujos de menús en la base de datos real
     for (const opt of botData.options) {
-      const parentFlowRes = await apiFetch('/bot/flows', {
+      await apiFetch('/bot/flows', {
         method: 'POST',
         body: JSON.stringify({
           botProfileId: profileId,
@@ -133,37 +128,16 @@ export const BotApiClient = {
           isActive: true,
         }),
       });
-
-      const parentFlowId = parentFlowRes.data?.id;
-
-      // 3. Crear submenús si existen
-      if (opt.subOptions && opt.subOptions.length > 0 && parentFlowId) {
-        for (const sub of opt.subOptions) {
-          await apiFetch('/bot/flows', {
-            method: 'POST',
-            body: JSON.stringify({
-              botProfileId: profileId,
-              parentId: parentFlowId,
-              name: sub.label,
-              triggerKeyword: sub.number,
-              flowType: 'menu',
-              content: JSON.stringify([]),
-              responseMessage: sub.response,
-              isActive: true,
-            }),
-          });
-        }
-      }
     }
 
     return profileRes.data;
   },
 
   async executeFunction(actionKey: string, senderPhone: string, botId?: string) {
-    const localConfig = typeof window !== 'undefined' ? ClientDatabase.getFunctionConfig(botId || 'admin', actionKey) : null;
+    const targetBotId = botId || 'admin';
     return await apiFetch('/bot/execute-function', {
       method: 'POST',
-      body: JSON.stringify({ actionKey, senderPhone, botId, localConfig }),
+      body: JSON.stringify({ actionKey, senderPhone, botId: targetBotId }),
     });
   },
 };

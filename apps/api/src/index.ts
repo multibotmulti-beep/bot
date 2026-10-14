@@ -4,7 +4,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { logger, LoggerUtils } from '@repo/logger';
-import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry, MasterBotEngine, BotFunctionRegistry, BotFunctionConfigService } from '@repo/domain';
+import { UserService, CredentialService, WebhookService, BotService, BotProfileService, AuthService, ChatService, CommandExecutor, AppError, mapPrismaError, CapabilityRegistry, MasterBotEngine, BotFunctionRegistry, BotFunctionConfigService, AIAgent } from '@repo/domain';
 
 const server = Fastify({
   logger: false, // Usamos nuestro logger centralizado de pino
@@ -88,7 +88,7 @@ server.addHook('onRequest', async (request, reply) => {
   // Permitir API pública para anónimos; requerir API Key solo cuando hay sesión de usuario / base de datos protegida
   const isAnonymous = request.headers['x-anonymous-mode'] === 'true' || request.headers['x-mode'] === 'anonymous';
 
-  if (!isAnonymous && ['POST', 'PUT', 'DELETE'].includes(method) && (url.includes('/bot') || url.includes('/capabilities'))) {
+  if (!isAnonymous && ['POST', 'PUT', 'DELETE'].includes(method) && (url.includes('/bot') || url.includes('/capabilities')) && !url.includes('/bot/profiles/anonymous') && !url.includes('/bot/assistant')) {
     const apiKey = request.headers['x-api-key'] || (request.headers['authorization'] || '').replace('Bearer ', '');
     const expectedKey = process.env.ADMIN_API_KEY || 'admin_secret_key_2026';
 
@@ -473,11 +473,24 @@ server.get('/bot/profiles', {
 
 server.post('/bot/profiles', {
   schema: {
-    description: 'Crea un nuevo perfil de bot',
+    description: 'Crea un nuevo perfil de bot al configurar nombre y número, asociándolo a la cookie de sesión',
     tags: ['Bots & AI'],
   },
 }, async (request, reply) => {
   const profile = await BotProfileService.createProfile(request.body as any);
+
+  const cookieHeader = request.headers['cookie'] || '';
+  const match = cookieHeader.match(/guest_session=([^;]+)/);
+  let sessionToken = match ? match[1] : ('guest_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+
+  const { prisma } = await import('@repo/database');
+  await prisma.botSession.upsert({
+    where: { senderPhone: profile.phoneNumber },
+    update: { loginToken: sessionToken, activeBotId: profile.botId },
+    create: { senderPhone: profile.phoneNumber, loginToken: sessionToken, activeBotId: profile.botId },
+  });
+
+  reply.header('Set-Cookie', `guest_session=${sessionToken}; Path=/; HttpOnly; Max-Age=2592000; SameSite=Lax`);
   reply.status(201).send({ success: true, data: profile });
 });
 
@@ -584,7 +597,7 @@ server.post('/bot/execute-function', {
     tags: ['Bots & AI'],
   },
 }, async (request) => {
-  const { actionKey, senderPhone, botId, args } = request.body as { actionKey: string; senderPhone?: string; botId?: string; args?: any };
+  const { actionKey, senderPhone, botId, args, localConfig } = request.body as { actionKey: string; senderPhone?: string; botId?: string; args?: any; localConfig?: any };
   const isAnonymous = request.headers['x-anonymous-mode'] === 'true' || request.headers['x-mode'] === 'anonymous';
 
   if (!actionKey) {
@@ -595,6 +608,7 @@ server.post('/bot/execute-function', {
     botId: botId || 'admin',
     isAnonymous,
     args: args || {},
+    localConfig,
     headers: request.headers,
     protocol: request.protocol,
   });
@@ -831,6 +845,238 @@ server.put('/bot/profiles/:id/welcome', {
   } else {
     return { success: false, message: 'No se encontró un flujo raíz para este bot.' };
   }
+});
+
+server.post('/bot/profiles/anonymous', {
+  schema: {
+    description: 'Gestiona la sesión anónima por cookie en el navegador sin crear perfiles prematuramente en BD',
+    tags: ['Bots & AI'],
+  },
+}, async (request, reply) => {
+  const { prisma } = await import('@repo/database');
+  const cookieHeader = request.headers['cookie'] || '';
+  const match = cookieHeader.match(/guest_session=([^;]+)/);
+  let sessionToken = match ? match[1] : null;
+
+  if (sessionToken) {
+    const sessionRecord = await prisma.botSession.findFirst({ where: { loginToken: sessionToken } });
+    if (sessionRecord && sessionRecord.activeBotId) {
+      const existingProfile = await BotProfileService.getProfileByBotId(sessionRecord.activeBotId);
+      if (existingProfile) {
+        reply.header('Set-Cookie', `guest_session=${sessionToken}; Path=/; HttpOnly; Max-Age=2592000; SameSite=Lax`);
+        return { success: true, profile: existingProfile };
+      }
+    }
+  }
+
+  sessionToken = 'guest_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+  reply.header('Set-Cookie', `guest_session=${sessionToken}; Path=/; HttpOnly; Max-Age=2592000; SameSite=Lax`);
+  return { success: true, profile: null, sessionToken };
+});
+
+server.post('/bot/ai-chat', {
+  schema: {
+    description: 'Chat inteligente en tiempo real impulsado por IA con memoria contextual y Function Calling',
+    tags: ['Bots & AI'],
+  },
+}, async (request) => {
+  const { botId, senderPhone, message } = request.body as { botId: string; senderPhone: string; message: string };
+  if (!botId || !senderPhone || !message) {
+    return { success: false, message: 'botId, senderPhone y message son obligatorios' };
+  }
+
+  const reply = await AIAgent.handleMessage(botId, senderPhone, message);
+  return { success: true, botId, senderPhone, reply };
+});
+
+// ==========================================
+// ASISTENTE GUIADO PASO A PASO POR API (WIZARD DE CONFIGURACIÓN Y CHAT)
+// ==========================================
+const assistantSessions = new Map<string, {
+  step: 'name_phone' | 'welcome' | 'functions' | 'ready';
+  botId?: string;
+  name?: string;
+  phoneNumber?: string;
+  welcomeMessage?: string;
+  enabledFunctions?: string[];
+}>();
+
+server.post('/bot/assistant', {
+  schema: {
+    description: 'Asistente interactivo guiado paso a paso por API (wizard con sesión simulada y chat WhatsApp real)',
+    tags: ['Bots & AI'],
+  },
+}, async (request, reply) => {
+  const sessionToken = (request.headers['x-session-token'] as string) || (request.headers['cookie'] || '').match(/session=([^;]+)/)?.[1] || 'session_' + Date.now();
+  const body = (request.body || {}) as {
+    name?: string;
+    phoneNumber?: string;
+    welcomeMessage?: string;
+    enabledFunctions?: string[];
+    message?: string;
+    actionKey?: string;
+    config?: any;
+  };
+
+  let session = assistantSessions.get(sessionToken);
+  if (!session) {
+    session = { step: 'name_phone' };
+    assistantSessions.set(sessionToken, session);
+  }
+
+  reply.header('Set-Cookie', `session=${sessionToken}; Path=/; HttpOnly`);
+
+  // Configurar / editar funciones en cualquier momento si se provee actionKey y config
+  if (body.actionKey && body.config) {
+    if (!session.botId) {
+      return { success: false, sessionToken, message: 'Primero debes completar la creación de tu bot en el asistente.' };
+    }
+    await BotFunctionConfigService.saveConfig(session.botId, body.actionKey, body.config);
+    return {
+      success: true,
+      sessionToken,
+      botId: session.botId,
+      message: `⚙️ Configuración de la función '${body.actionKey}' guardada y aplicada exitosamente para tu perfil (${session.botId}).`,
+      config: body.config
+    };
+  }
+
+  // Paso 1: Solicitar Nombre y Teléfono
+  if (session.step === 'name_phone') {
+    if (!body.name || !body.phoneNumber) {
+      return {
+        success: false,
+        sessionToken,
+        step: 'name_phone',
+        message: '🤖 [Asistente Bot API] ¡Hola! Para comenzar, necesitamos crear tu perfil de bot en la base de datos real. Por favor, envía en JSON tu nombre y número de teléfono.',
+        requiredFields: { name: 'string', phoneNumber: 'string' },
+        example: { name: 'Mi Negocio Bot', phoneNumber: '+5491155556666' }
+      };
+    }
+    session.name = body.name;
+    session.phoneNumber = body.phoneNumber.replace(/[^0-9+]/g, '');
+    session.botId = session.phoneNumber.replace(/[^0-9]/g, '');
+    session.step = 'welcome';
+
+    return {
+      success: true,
+      sessionToken,
+      step: 'welcome',
+      message: `✅ Perfil base creado para "${session.name}" (${session.botId}). Siguiente paso: Envía el mensaje de bienvenida.`,
+      example: { welcomeMessage: '¡Hola! Bienvenido a nuestro canal oficial de atención.' }
+    };
+  }
+
+  // Paso 2: Solicitar Mensaje de Bienvenida
+  if (session.step === 'welcome') {
+    if (!body.welcomeMessage) {
+      return {
+        success: false,
+        sessionToken,
+        step: 'welcome',
+        message: '🤖 [Asistente Bot API] Por favor, envía el mensaje de bienvenida que verán tus clientes.',
+        requiredFields: { welcomeMessage: 'string' },
+        example: { welcomeMessage: '¡Hola! Gracias por comunicarte con nosotros. ¿En qué podemos ayudarte?' }
+      };
+    }
+    session.welcomeMessage = body.welcomeMessage;
+    session.step = 'functions';
+
+    const availableFuncs = BotFunctionRegistry.getAll();
+    return {
+      success: true,
+      sessionToken,
+      step: 'functions',
+      message: '✅ Mensaje de bienvenida guardado. Siguiente paso: Selecciona las funciones que deseas habilitar en tu menú.',
+      availableFunctions: availableFuncs,
+      example: { enabledFunctions: ['stock.check', 'turnos.book', 'business.payment_info'] }
+    };
+  }
+
+  // Paso 3: Seleccionar Funciones del Menú
+  if (session.step === 'functions') {
+    if (!Array.isArray(body.enabledFunctions) || body.enabledFunctions.length === 0) {
+      const availableFuncs = BotFunctionRegistry.getAll();
+      return {
+        success: false,
+        sessionToken,
+        step: 'functions',
+        message: '🤖 [Asistente Bot API] Por favor, selecciona al menos una función para tu menú enviando un array con sus actionKeys.',
+        availableFunctions: availableFuncs,
+        requiredFields: { enabledFunctions: 'array of strings (actionKeys)' },
+        example: { enabledFunctions: ['stock.check', 'turnos.book', 'business.payment_info'] }
+      };
+    }
+    session.enabledFunctions = body.enabledFunctions;
+    session.step = 'ready';
+
+    // Crear el bot y sus flujos en la base de datos real
+    try {
+      await BotProfileService.createProfile({
+        phoneNumber: session.phoneNumber!,
+        name: session.name!,
+        description: 'Bot configurado mediante Asistente API',
+        type: 'custom',
+        isPublic: true,
+        isActive: true,
+      });
+
+      const optionsContent = session.enabledFunctions.map((actKey, idx) => {
+        const fn = BotFunctionRegistry.getAll().find(f => f.actionKey === actKey);
+        return {
+          number: String(idx + 1),
+          label: fn ? fn.description.substring(0, 35) : actKey,
+          actionKey: actKey
+        };
+      });
+
+      const profile = await BotProfileService.getProfileByBotId(session.botId!);
+      if (profile) {
+        await BotService.createFlow({
+          botProfileId: profile.id,
+          name: 'Menú Principal Asistente',
+          triggerKeyword: 'menu',
+          flowType: 'menu',
+          responseMessage: session.welcomeMessage!,
+          content: JSON.stringify(optionsContent),
+          isActive: true,
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err }, 'Aviso al registrar perfil en asistente API');
+    }
+
+    return {
+      success: true,
+      sessionToken,
+      step: 'ready',
+      message: '🎉 ¡Asistente completado! Tu bot ya está creado y configurado en la base de datos real. Ya puedes chatear enviando el campo "message".',
+      example: { message: 'menu' }
+    };
+  }
+
+  // Paso 4: Chatear con el Bot (Simulación WhatsApp real)
+  if (session.step === 'ready') {
+    const userMessage = body.message || 'menu';
+    const engine = new MasterBotEngine();
+    
+    const res = await engine.processMessage({
+      senderPhone: '+5491155556666',
+      incomingText: userMessage,
+      phoneNumberId: session.botId || 'admin',
+    });
+
+    return {
+      success: true,
+      sessionToken,
+      step: 'ready',
+      botId: session.botId,
+      userMessage,
+      botResponse: res.response || res,
+    };
+  }
+
+  return { success: true, sessionToken, message: 'Sesión activa' };
 });
 
 // ==========================================

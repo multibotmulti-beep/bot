@@ -17,7 +17,7 @@ if [ -z "$TOKEN" ]; then
     exit 1
 fi
 
-echo "Empujando cambios a GitHub..."
-git push "https://${TOKEN}@${REPO}" master
+echo "Empujando cambios a GitHub (forzado)..."
+git push "https://${TOKEN}@${REPO}" master --force
 
 echo "✅ Push completado exitosamente. Token eliminado de memoria."

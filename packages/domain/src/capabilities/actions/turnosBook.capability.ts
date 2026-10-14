@@ -7,10 +7,15 @@ export const TurnosBookCapability: DomainCapability = {
   key: 'turnos.book',
   name: 'Reserva de Turnos',
   description: 'Reserva un turno médico, técnico o de servicios, registrándolo en la memoria con control temporal',
+  configSchema: [
+    { key: 'horarios', label: 'Horarios Disponibles (separados por coma)', type: 'string', defaultValue: '09:00, 11:00, 15:00', required: true },
+    { key: 'servicio', label: 'Nombre del Servicio / Atención', type: 'string', defaultValue: 'Atención General' },
+    { key: 'duracionMin', label: 'Duración (minutos)', type: 'number', defaultValue: 30 },
+  ],
   execute: async (context: CapabilityContext): Promise<CapabilityResult> => {
     const botId = context.botId || 'admin';
     const senderPhone = context.senderPhone || '+5491155556666';
-    const configRes = await BotFunctionConfigService.getConfig(botId, 'turnos.book');
+    const configRes = await BotFunctionConfigService.getConfig(botId, 'turnos.book', context.localConfig);
     const horariosDisponibles = configRes.config?.horarios || '09:00, 11:00, 15:00';
     const title = `Turno Agendado (Horarios: ${horariosDisponibles})`;
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);

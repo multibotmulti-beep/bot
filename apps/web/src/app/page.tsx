@@ -52,6 +52,24 @@ export default function Page() {
     }
   };
 
+  const handleEnterAsGuest = async () => {
+    setAuthLoading(true);
+    try {
+      const res = await apiFetch('/bot/profiles/anonymous', { method: 'POST' });
+      if (res.success && res.profile) {
+        setIsAnonymous(true);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('bot_user_phone', res.profile.phoneNumber || '+5491100000000');
+          sessionStorage.setItem('active_bot_id', res.profile.botId || res.profile.id);
+        }
+      }
+    } catch (err: any) {
+      alert(`Error al iniciar como invitado: ${err.message}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   if (!isLoaded) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--color-background)', color: 'var(--color-text)' }}>
@@ -127,10 +145,12 @@ export default function Page() {
 
           <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '24px', paddingTop: '20px', textAlign: 'center' }}>
             <button
-              onClick={() => setIsAnonymous(true)}
-              style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'underline' }}
+              type="button"
+              disabled={authLoading}
+              onClick={handleEnterAsGuest}
+              style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, textDecoration: 'underline' }}
             >
-              Continuar en Modo Anónimo (Explorar sin guardar)
+              {authLoading ? 'Creando sesión...' : 'Ingresar como Invitado (Crear sesión anónima en BD)'}
             </button>
           </div>
         </div>

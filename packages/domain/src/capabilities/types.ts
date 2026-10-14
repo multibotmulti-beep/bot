@@ -5,6 +5,7 @@ export interface CapabilityContext {
   userId?: string;
   botId?: string;
   args?: any;
+  localConfig?: any;
   headers?: Record<string, any>;
   protocol?: string;
 }
