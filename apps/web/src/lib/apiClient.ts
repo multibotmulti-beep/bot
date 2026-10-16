@@ -24,17 +24,19 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
     reportLogToBackend('debug', `API Request: {options.method || 'GET'} ${endpoint}`);
 
     const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+    const isAnon = typeof window !== 'undefined' ? localStorage.getItem('is_anonymous') === 'true' : false;
     const additionalHeaders: Record<string, string> = {};
-    if (!phone) {
+    if (!phone || isAnon) {
       additionalHeaders['X-Anonymous-Mode'] = 'true';
     }
 
+    const hasBody = Boolean(fetchOptions.body);
     const response = await fetch(url, {
       ...fetchOptions,
       credentials: 'include',
       signal: controller.signal,
       headers: {
-        'Content-Type': 'application/json',
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...additionalHeaders,
         ...(fetchOptions.headers || {}),
       },
@@ -80,55 +82,51 @@ export async function reportLogToBackend(level: 'debug' | 'info' | 'warn' | 'err
 export const BotApiClient = {
   async getProfiles() {
     try {
-      const res = await apiFetch('/bot/profiles');
+      const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+      const query = phone ? `?phoneNumber=${encodeURIComponent(phone)}` : '';
+      const res = await apiFetch(`/bot/profiles${query}`);
       if (res.success && res.data && res.data.length > 0) {
-        return res.data;
-      }
-    } catch {
-      // Si no hay perfiles, autogenerar un perfil anónimo en la base de datos real
-    }
-    try {
-      const anonRes = await apiFetch('/bot/profiles/anonymous', { method: 'POST' });
-      if (anonRes.success && anonRes.profile) {
-        return [anonRes.profile];
+        const filtered = res.data.filter((p: any) => p.id !== 'admin' && p.botId !== 'admin' && p.type !== 'system');
+        if (filtered.length > 0) return filtered;
       }
     } catch {}
-    return [{ id: 'admin', botId: 'admin', name: 'Bot Admin Central', type: 'system', isPublic: true }];
+    return [];
   },
 
-  async createBotWithMenus(botData: { name: string; description: string; welcomeMessage: string; options: any[] }) {
-    // 1. Crear perfil de bot en la base de datos real
+  async createBotWithMenus(botData: { name: string; description: string; welcomeMessage: string; invalidOptionMessage?: string; options: any[] }) {
+    let phoneNumber = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+    if (!phoneNumber) {
+      phoneNumber = '+549' + Math.floor(1000000000 + Math.random() * 9000000000);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('bot_user_phone', phoneNumber);
+      }
+    }
+
+    const menuOptions = botData.options.map(opt => ({
+      label: opt.label,
+      option: opt.number || opt.id || '1',
+      actionKey: opt.actionKey || undefined
+    }));
+
+    // 1. Crear perfil de bot y su flujo de menú raíz con opciones en la base de datos real
     const profileRes = await apiFetch('/bot/profiles', {
       method: 'POST',
       body: JSON.stringify({
         botId: `bot_${Date.now()}`,
+        phoneNumber,
         name: botData.name,
         description: botData.description,
         type: 'custom',
         isPublic: true,
         isActive: true,
         welcomeMessage: botData.welcomeMessage,
+        invalidOptionMessage: botData.invalidOptionMessage,
+        menuOptions,
       }),
     });
 
     const profileId = profileRes.data?.id;
     if (!profileId) throw new Error('No se pudo crear el perfil del bot en la base de datos real.');
-
-    // 2. Crear flujos de menús en la base de datos real
-    for (const opt of botData.options) {
-      await apiFetch('/bot/flows', {
-        method: 'POST',
-        body: JSON.stringify({
-          botProfileId: profileId,
-          name: opt.label,
-          triggerKeyword: opt.number,
-          flowType: 'menu',
-          content: JSON.stringify(opt.subOptions || []),
-          responseMessage: opt.response || botData.welcomeMessage,
-          isActive: true,
-        }),
-      });
-    }
 
     return profileRes.data;
   },
@@ -140,4 +138,32 @@ export const BotApiClient = {
       body: JSON.stringify({ actionKey, senderPhone, botId: targetBotId }),
     });
   },
+
+  async activateProfile(id: string) {
+    return await apiFetch(`/bot/profiles/${id}/activate`, {
+      method: 'PUT',
+    });
+  },
+};
+
+export const ChatApiClient = {
+  async getConversations(botId?: string) {
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') : null;
+    const params = new URLSearchParams();
+    if (phone) params.append('phoneNumber', phone);
+    if (botId) params.append('botId', botId);
+    const res = await apiFetch(`/api/chats?${params.toString()}`);
+    return res.success ? res.data : [];
+  },
+  async getMessages(senderPhone: string) {
+    const res = await apiFetch(`/api/chats/${encodeURIComponent(senderPhone)}`);
+    return res.success ? res.data : [];
+  },
+  async sendMessage(senderPhone: string, message: string, botId: string) {
+    const res = await apiFetch('/api/chats/send', {
+      method: 'POST',
+      body: JSON.stringify({ senderPhone, message, botId }),
+    });
+    return res.success ? res.data : null;
+  }
 };

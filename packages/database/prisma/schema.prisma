@@ -49,20 +49,21 @@ model WebhookLog {
 }
 
 model BotProfile {
-  id          String    @id @default(uuid())
-  botId       String    @unique
-  name        String
-  description String?
-  type        String    @default("custom")
-  isPublic    Boolean   @default(true)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  phoneNumber String    @default("")
-  userId      String?
-  flows       BotFlow[]
-  user        User?     @relation(fields: [userId], references: [id])
-  rules       BotRule[]
+  id                   String    @id @default(uuid())
+  botId                String    @unique
+  name                 String
+  description          String?
+  type                 String    @default("custom")
+  isPublic             Boolean   @default(true)
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  phoneNumber          String    @default("")
+  userId               String?
+  invalidOptionMessage String    @default("⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.")
+  flows                BotFlow[]
+  user                 User?     @relation(fields: [userId], references: [id])
+  rules                BotRule[]
 
   @@map("bot_profiles")
 }
@@ -113,6 +114,7 @@ model BotSession {
   currentParentFlowId String?
   loginToken          String?
   loginTokenExpires   DateTime?
+  verified            Boolean   @default(false)
   updatedAt           DateTime  @updatedAt
 
   @@map("bot_sessions")

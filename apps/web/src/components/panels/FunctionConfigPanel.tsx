@@ -51,30 +51,25 @@ export default function FunctionConfigPanel() {
     BotApiClient.getProfiles()
       .then((profiles) => {
         const activeSessionBot = typeof window !== 'undefined' ? sessionStorage.getItem('active_bot_id') : null;
-        if (profiles && profiles.length > 0) {
-          let scopedProfiles = profiles;
-          if (activeSessionBot) {
-            scopedProfiles = profiles.find((p: any) => (p.botId || p.id) === activeSessionBot)
-              ? [profiles.find((p: any) => (p.botId || p.id) === activeSessionBot)]
-              : [profiles[profiles.length - 1]];
-          } else {
-            scopedProfiles = [profiles[profiles.length - 1]];
-          }
+        const validProfiles = (profiles || []).filter((p: any) => p.id !== 'admin' && p.botId !== 'admin' && p.type !== 'system');
+        if (validProfiles.length > 0) {
+          const matchedBot = activeSessionBot ? validProfiles.find((p: any) => (p.botId || p.id) === activeSessionBot) : null;
+          const scopedProfiles = matchedBot ? [matchedBot] : [validProfiles[0]];
           setBots(scopedProfiles);
-          const targetId = scopedProfiles[0]?.botId || scopedProfiles[0]?.id || 'admin';
+          const targetId = scopedProfiles[0]?.botId || scopedProfiles[0]?.id || '';
           setSelectedBotId(targetId);
           if (typeof window !== 'undefined' && scopedProfiles[0]) {
             sessionStorage.setItem('active_bot_id', targetId);
           }
         } else {
-          setBots([{ id: 'admin', botId: 'admin', name: 'Bot Principal' }]);
-          setSelectedBotId('admin');
+          setBots([]);
+          setSelectedBotId('');
         }
       })
       .catch((err) => {
         logger.error({ err }, 'Error cargando perfiles de bot en FunctionConfigPanel');
-        setBots([{ id: 'admin', botId: 'admin', name: 'Bot Principal' }]);
-        setSelectedBotId('admin');
+        setBots([]);
+        setSelectedBotId('');
       });
   }, []);
 
@@ -231,32 +226,26 @@ export default function FunctionConfigPanel() {
     }
 
     try {
-      if (isLoggedIn && userPhone) {
-        // Guardar en Perfil y Base de Datos vía API
-        const res = await apiFetch('/bot/function-configs', {
-          method: 'POST',
-          body: JSON.stringify({
-            botId: selectedBotId,
-            actionKey: selectedFunction,
-            config: configObject,
-          }),
-        });
+      // Guardar siempre en la base de datos remota vía API, respaldando también localmente
+      const res = await apiFetch('/bot/function-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          botId: selectedBotId,
+          actionKey: selectedFunction,
+          config: configObject,
+        }),
+      });
 
-        // Respaldar también localmente en el navegador
-        ClientDatabase.saveFunctionConfig(selectedBotId, selectedFunction, configObject);
+      // Respaldar también localmente en el navegador
+      ClientDatabase.saveFunctionConfig(selectedBotId, selectedFunction, configObject);
 
-        if (res.success) {
-          setStatusMsg(`✅ Configuración guardada en la base de datos para el bot [${selectedBotId}] y asociada a tu sesión.`);
-        } else {
-          setStatusMsg(`❌ Error al guardar en base de datos: ${res.message || res.error}`);
-        }
+      if (res.success) {
+        setStatusMsg(`✅ Configuración guardada exitosamente en la base de datos para el bot [${selectedBotId}].`);
       } else {
-        // Modo Anónimo: Guardar exclusivamente en la base de datos local del navegador
-        ClientDatabase.saveFunctionConfig(selectedBotId, selectedFunction, configObject);
-        setStatusMsg('✅ Guardado en la base de datos local del navegador (Modo anónimo sin base de datos remota).');
+        setStatusMsg(`❌ Error al guardar en base de datos: ${res.message || res.error}`);
       }
     } catch (err: any) {
-      // Fallback a almacenamiento local si falla la red
+      // Fallback a almacenamiento local si hay problemas de red
       ClientDatabase.saveFunctionConfig(selectedBotId, selectedFunction, configObject);
       setStatusMsg(`⚠️ Almacenado localmente en el navegador (${err.message}).`);
     } finally {

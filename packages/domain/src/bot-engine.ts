@@ -11,6 +11,8 @@ import { BotConfig } from './bot.config';
 import { BotFunctionRegistry } from './bot.functions';
 import { CredentialService } from './webhook';
 import { ChatService } from './chat';
+import { getFrontendBaseUrl } from './command';
+import { BotProfileService } from './bot';
 
 export interface IncomingMessageContext {
   senderPhone: string;
@@ -21,16 +23,53 @@ export interface IncomingMessageContext {
   protocol?: string;
 }
 
+export function normalizeSenderPhone(phone: string): string {
+  if (!phone) return '';
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (digits.startsWith('549') && digits.length === 13) {
+    return '54' + digits.slice(3);
+  }
+  return digits;
+}
+
 /**
  * Clase Base del Motor de Bot (Base Bot Engine)
  * Maneja la lógica común de persistencia, sesiones y despacho dinámico desde la BD.
  */
 export abstract class BaseBotEngine {
   protected async getOrCreateSession(senderPhone: string, defaultBotId: string) {
-    let session = await prisma.botSession.findUnique({ where: { senderPhone } });
+    const cleanPhone = normalizeSenderPhone(senderPhone);
+    let session = await prisma.botSession.findUnique({ where: { senderPhone: cleanPhone } });
     if (!session) {
+      session = await prisma.botSession.findFirst({
+        where: {
+          OR: [
+            { senderPhone },
+            { senderPhone: cleanPhone },
+            { senderPhone: { endsWith: cleanPhone.slice(-10) } }
+          ]
+        }
+      });
+    }
+
+    if (!session) {
+      // Verificar estrictamente si este número tiene un perfil de bot registrado y activo para él
+      const userProfile = await prisma.botProfile.findFirst({
+        where: {
+          OR: [
+            { phoneNumber: senderPhone },
+            { phoneNumber: cleanPhone },
+            { phoneNumber: { endsWith: cleanPhone.slice(-10) } }
+          ],
+          isActive: true
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      const initialBotId = userProfile ? userProfile.botId : defaultBotId;
+
       session = await prisma.botSession.create({
-        data: { senderPhone, activeBotId: defaultBotId, wizardStep: 0 },
+        data: { senderPhone: cleanPhone, activeBotId: initialBotId, wizardStep: 0 },
       });
     }
     return session;
@@ -40,7 +79,7 @@ export abstract class BaseBotEngine {
     return await CredentialService.getCredential(credentialName);
   }
 
-  public async sendResponseToWhatsApp(senderPhone: string, text: string, phoneNumberId?: string) {
+  public async sendResponseToWhatsApp(senderPhone: string, text: string, phoneNumberId?: string, botId: string = BotConfig.defaultBotId) {
     const credential = await this.getCredentialFromDb('whatsapp');
     const dbToken = credential?.apiKey;
     const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_ACCESS_TOKEN !== 'EAAG_MOCK_WHATSAPP_TOKEN_2026')
@@ -62,7 +101,7 @@ export abstract class BaseBotEngine {
 
     await ChatService.saveMessage({
       senderPhone,
-      botId: BotConfig.defaultBotId,
+      botId: botId || BotConfig.defaultBotId,
       direction: 'outgoing',
       message: text,
     });
@@ -103,88 +142,15 @@ export class MasterBotEngine extends BaseBotEngine {
     const { senderPhone, incomingText, phoneNumberId, rawPayload } = context;
     logger.info({ senderPhone, incomingText }, 'MasterBotEngine procesando mensaje');
 
-    // 1. Verificador de sesión propio con código generado y número remitente
-    const cleanIncoming = incomingText.replace(/[^a-z0-9_]/g, '');
-    const tokenMatch = cleanIncoming.replace(/^(verificar|verify)[_ -]*/, '').trim() || incomingText.trim();
-    
-    if (cleanIncoming.startsWith('verificar') || cleanIncoming.startsWith('verify') || /^\d{6}$/.test(incomingText) || tokenMatch.length >= 6) {
-      const sessionToken = await prisma.botSession.findFirst({
-        where: {
-          OR: [
-            { loginToken: tokenMatch },
-            { loginToken: incomingText.trim() },
-            { loginToken: cleanIncoming }
-          ]
-        }
-      });
-
-      if (sessionToken) {
-        if (sessionToken.loginTokenExpires && sessionToken.loginTokenExpires < new Date()) {
-          const expiredMsg = '⏳ El código de verificación ha expirado. Solicita uno nuevo desde la web o el menú.';
-          await this.sendResponseToWhatsApp(senderPhone, expiredMsg, phoneNumberId);
-          return { processed: true, response: expiredMsg };
-        }
-
-        const cleanSender = senderPhone.replace(/[^0-9]/g, '');
-        const cleanTarget = sessionToken.senderPhone.replace(/[^0-9]/g, '');
-
-        if (cleanSender !== cleanTarget) {
-          logger.warn({ senderPhone, targetPhone: sessionToken.senderPhone }, 'Intento de suplantación de identidad detectado en verificación de token de WhatsApp');
-          const spoofMsg = `❌ Error de Autenticación: El número de WhatsApp (${senderPhone}) no coincide con el número vinculado al token (${sessionToken.senderPhone}). No puedes verificar ni registrar un número que no posees.`;
-          await this.sendResponseToWhatsApp(senderPhone, spoofMsg, phoneNumberId);
-          return { processed: true, response: spoofMsg };
-        }
-
-        await prisma.botSession.update({
-          where: { senderPhone: sessionToken.senderPhone },
-          data: { loginToken: null, loginTokenExpires: null },
-        });
-
-        await prisma.user.upsert({
-          where: { phoneNumber: senderPhone },
-          update: {},
-          create: { phoneNumber: senderPhone, name: `Usuario ${senderPhone}` },
-        });
-
-        const successMsg = `✅ ¡Verificación de sesión exitosa para el número ${senderPhone}! Tu cuenta ha sido autenticada correctamente.`;
-
-        // Cargar perfil admin y menú raíz para responder automáticamente con el menú
-        const adminProfile = await prisma.botProfile.findUnique({
-          where: { botId: 'admin' },
-          include: { flows: true },
-        });
-
-        let menuText = '';
-        if (adminProfile) {
-          const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: adminProfile.id, isActive: true, parentId: null } });
-          if (rootFlow) {
-            menuText = '\n\n' + rootFlow.responseMessage + '\n\n';
-            try {
-              const parsed = JSON.parse(rootFlow.content);
-              if (Array.isArray(parsed)) {
-                parsed.forEach((item: any, idx: number) => {
-                  menuText += `${idx + 1}. ${item.label || item.option}\n`;
-                });
-              }
-            } catch {
-              menuText += rootFlow.content;
-            }
-            menuText = menuText.trim() + '\n\n0. ↩️ Volver';
-          }
-        }
-
-        const fullResponse = `${successMsg}${menuText}`;
-        await this.sendResponseToWhatsApp(senderPhone, fullResponse, phoneNumberId);
-        return { processed: true, response: fullResponse };
-      }
-    }
-
-    // 2. Gestionar sesión activa y delegación jerárquica
+    // 0. Gestionar sesión activa y delegación jerárquica prioritaria
     let session = await this.getOrCreateSession(senderPhone, BotConfig.defaultBotId);
     let activeBotId = session.activeBotId;
 
+    const trimmedInput = incomingText.trim();
+    const lowerInput = trimmedInput.toLowerCase();
+
     // Si el usuario envía comandos explícitos de salida, regresar al Bot Admin
-    if (incomingText === '0' || incomingText === 'volver' || incomingText === 'admin' || incomingText === 'salir') {
+    if (lowerInput === '0' || lowerInput === 'volver' || lowerInput === 'admin' || lowerInput === 'salir') {
       activeBotId = BotConfig.defaultBotId;
       await prisma.botSession.update({
         where: { senderPhone },
@@ -192,12 +158,207 @@ export class MasterBotEngine extends BaseBotEngine {
       });
     }
 
-    // Si el usuario está conectado a un bot hijo (UserBotEngine), delegar
+    // Si el usuario está conectado a un bot hijo (UserBotEngine) y no pidió salir, delegar inmediatamente
     if (activeBotId !== 'admin') {
       const childBot = await prisma.botProfile.findUnique({ where: { botId: activeBotId } });
       if (childBot && childBot.isActive) {
+        await ChatService.saveMessage({
+          senderPhone,
+          botId: activeBotId,
+          direction: 'incoming',
+          message: incomingText,
+        });
         const userBotEngine = this.createUserBotEngine(childBot.botId);
         return await userBotEngine.processMessage(context);
+      }
+    }
+
+    // Guardar mensaje entrante como admin
+    await ChatService.saveMessage({
+      senderPhone,
+      botId: 'admin',
+      direction: 'incoming',
+      message: incomingText,
+    });
+
+    // 1. Verificador de sesión propio con código generado y número remitente
+    const cleanIncoming = incomingText.trim().toLowerCase();
+    const tokenMatch = cleanIncoming.replace(/^(verificar|verify)[_ -]*/, '').trim() || incomingText.trim();
+    const isVerificationCommand = cleanIncoming.startsWith('verificar') || cleanIncoming.startsWith('verify') || /^\d{6}$/.test(incomingText) || tokenMatch.length >= 6;
+    
+    if (isVerificationCommand) {
+      const cleanSender = senderPhone.replace(/[^0-9]/g, '');
+      const session = await prisma.botSession.findFirst({
+        where: {
+          OR: [
+            { senderPhone },
+            { senderPhone: cleanSender }
+          ]
+        }
+      });
+
+      if (!session || !session.loginToken || session.loginToken !== tokenMatch || (session.loginTokenExpires && session.loginTokenExpires < new Date())) {
+        return {
+          processed: true,
+          responseMessage: '❌ *Error de autenticación:* El código de verificación es inválido, ha expirado o no corresponde a este número de WhatsApp. Cada código es exclusivo y de un solo uso.',
+        };
+      }
+
+      // Token válido: limpiar y marcar como verificado
+      await prisma.botSession.update({
+        where: { senderPhone: session.senderPhone },
+        data: { loginToken: null, loginTokenExpires: null, verified: true },
+      });
+
+      await prisma.user.upsert({
+        where: { phoneNumber: session.senderPhone },
+        update: {},
+        create: { phoneNumber: session.senderPhone, name: `Usuario ${session.senderPhone}` },
+      });
+
+      const userRecord = await prisma.user.findUnique({
+        where: { phoneNumber: session.senderPhone },
+      });
+
+      const userBots = await BotProfileService.getBotsForUser(session.senderPhone, userRecord?.id);
+
+        const pageUrl = getFrontendBaseUrl(undefined, { headers: context.headers, protocol: context.protocol });
+        const activeBotRecord = userBots[0];
+
+        if (activeBotRecord) {
+          await prisma.botSession.update({
+            where: { senderPhone },
+            data: { activeBotId: activeBotRecord.botId },
+          });
+        }
+
+        let botsSummary = userBots.length > 0 
+          ? userBots.map((b, i) => `   - ${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? 'Activo' : 'Inactivo'}]`).join('\n')
+          : '   - Ningún bot registrado aún.';
+
+        const fullResponse = [
+          `✅ *¡Login realizado con éxito!*`,
+          ``,
+          `📊 *Resumen de Sesión:*`,
+          `🔗 *Página Oficial:* ${pageUrl}`,
+          `📱 *Número Detectado:* \`${senderPhone}\``,
+          `🤖 *Bots Activos (${userBots.length}):*`,
+          botsSummary,
+          ``,
+          `✨ *Centro de Control Oficial (Admin):*`,
+          `Selecciona una opción:`,
+          `1. 🚀 Abrir bot activo${activeBotRecord ? ` (${activeBotRecord.name})` : ''}`,
+          `2. 👤 Hablar con soporte técnico (+54 9 3765 24-5980)`,
+          `0. ↩️ Volver`
+        ].join('\n');
+
+        await this.sendResponseToWhatsApp(senderPhone, fullResponse, phoneNumberId);
+        return { processed: true, response: fullResponse };
+    }
+
+    const cleanText = incomingText.trim().toLowerCase();
+
+    // Interceptar opción 1 (Abrir bot activo) y opción 2 (Soporte) en Admin
+    if (trimmedInput === '1') {
+      const userRecord = await prisma.user.findUnique({ where: { phoneNumber: senderPhone } });
+      const userBots = await BotProfileService.getBotsForUser(senderPhone, userRecord?.id);
+      const activeBot = userBots[0];
+      if (activeBot) {
+        await prisma.botSession.update({
+          where: { senderPhone },
+          data: { activeBotId: activeBot.botId },
+        });
+        const userBotEngine = this.createUserBotEngine(activeBot.botId);
+        return await userBotEngine.processMessage({ ...context, incomingText: 'hola' });
+      } else {
+        const msg = '❌ No tienes ningún bot activo creado aún. Crea uno desde la plataforma web.';
+        await this.sendResponseToWhatsApp(senderPhone, msg, phoneNumberId);
+        return { processed: true, response: msg };
+      }
+    }
+
+    if (trimmedInput === '2') {
+      const supportMsg = '👤 *Soporte Técnico Oficial*\nPuedes comunicarte directamente con nuestro asesor técnico mediante el número de soporte: *+54 9 3765 24-5980*.';
+      await this.sendResponseToWhatsApp(senderPhone, supportMsg, phoneNumberId);
+      return { processed: true, response: supportMsg };
+    }
+
+    // Interceptar comando "activar [botId]" o "usar [botId]"
+    if (cleanText.startsWith('activar ') || cleanText.startsWith('usar ')) {
+      const targetBotId = incomingText.trim().replace(/^(activar|usar)\s*/i, '').trim();
+      const targetProfile = await prisma.botProfile.findFirst({
+        where: {
+          OR: [
+            { botId: targetBotId },
+            { name: { contains: targetBotId, mode: 'insensitive' } }
+          ],
+          phoneNumber: senderPhone
+        }
+      });
+
+      if (targetProfile) {
+        await BotProfileService.activateProfile(targetProfile.id);
+        await prisma.botSession.update({
+          where: { senderPhone },
+          data: { activeBotId: targetProfile.botId, currentParentFlowId: null },
+        });
+        const userBotEngine = this.createUserBotEngine(targetProfile.botId);
+        return await userBotEngine.processMessage({ ...context, incomingText: 'menu' });
+      } else {
+        const errText = `❌ No se encontró ningún bot tuyo con el identificador o nombre "${targetBotId}". Envía "mis bots" para ver tu lista.`;
+        await this.sendResponseToWhatsApp(senderPhone, errText, phoneNumberId);
+        return { processed: true, response: errText };
+      }
+    }
+
+    // Interceptar comando "mis bots" o "bots"
+    if (cleanText === 'mis bots' || cleanText === 'bots') {
+      const userRecord = await prisma.user.findUnique({ where: { phoneNumber: senderPhone } });
+      const userBots = await BotProfileService.getBotsForUser(senderPhone, userRecord?.id);
+
+      const listText = userBots.length > 0
+        ? `🤖 *Tus Bots Registrados:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Para activar uno, envía:\n*activar [ID del bot]*`
+        : `🤖 No tienes ningún bot registrado aún.`;
+
+      await this.sendResponseToWhatsApp(senderPhone, listText, phoneNumberId);
+      return { processed: true, response: listText };
+    }
+
+    // Interceptar comando "bot [id_o_numero]" para activar, cambiar sesión e interactuar con el bot
+    if (cleanText === 'bot' || cleanText.startsWith('bot ')) {
+      const targetQuery = incomingText.trim().replace(/^bot\s*/i, '').trim();
+      if (!targetQuery) {
+        const userRecord = await prisma.user.findUnique({ where: { phoneNumber: senderPhone } });
+        const userBots = await BotProfileService.getBotsForUser(senderPhone, userRecord?.id);
+        const listText = userBots.length > 0
+          ? `🤖 *Tus Bots Disponibles:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Envía \`bot [ID o número]\` para interactuar con él.`
+          : `🤖 No tienes ningún bot registrado aún.`;
+        await this.sendResponseToWhatsApp(senderPhone, listText, phoneNumberId);
+        return { processed: true, response: listText };
+      }
+
+      const targetProfile = await prisma.botProfile.findFirst({
+        where: {
+          OR: [
+            { botId: targetQuery },
+            { phoneNumber: { contains: targetQuery } },
+            { name: { contains: targetQuery, mode: 'insensitive' } }
+          ]
+        }
+      });
+
+      if (targetProfile) {
+        await BotProfileService.activateProfile(targetProfile.id);
+        await prisma.botSession.update({
+          where: { senderPhone },
+          data: { activeBotId: targetProfile.botId, currentParentFlowId: null },
+        });
+        const userBotEngine = this.createUserBotEngine(targetProfile.botId);
+        return await userBotEngine.processMessage({ ...context, incomingText: 'menu' });
+      } else {
+        const errText = `❌ No hay ningún bot con ese número o identificador "${targetQuery}".`;
+        await this.sendResponseToWhatsApp(senderPhone, errText, phoneNumberId);
+        return { processed: true, response: errText };
       }
     }
 
@@ -326,16 +487,23 @@ export class UserBotEngine extends BaseBotEngine {
 
     if (incomingText.match(/^[0-9]+$/)) {
       const optIndex = parseInt(incomingText, 10) - 1;
-      const parentFlow = currentParentId ? await prisma.botFlow.findUnique({ where: { id: currentParentId } }) : await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
+      logger.info({ incomingText, profileId: profile.id, currentParentId, optIndex }, 'UserBotEngine evaluando texto numérico');
+      const parentFlow = currentParentId ? await prisma.botFlow.findUnique({ where: { id: currentParentId } }) : await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
+      logger.info({ parentFlowFound: !!parentFlow, parentFlowId: parentFlow?.id }, 'Resultado de búsqueda de parentFlow');
 
       if (parentFlow) {
         try {
+          logger.info({ parentFlowContent: parentFlow.content }, 'Contenido de parentFlow');
           const contentJson = JSON.parse(parentFlow.content);
+          logger.info({ contentJson }, 'ContentJson parseado');
           if (Array.isArray(contentJson) && contentJson[optIndex]) {
             const selectedItem = contentJson[optIndex];
+            logger.info({ selectedItem }, 'Item seleccionado del menú');
             if (selectedItem.actionKey) {
               const result = await BotFunctionRegistry.execute(selectedItem.actionKey, { senderPhone, botId: profile.botId });
               matchedResponse = result.message;
+            } else if (selectedItem.response) {
+              matchedResponse = selectedItem.response;
             } else {
               const childFlow = await prisma.botFlow.findFirst({
                 where: { botProfileId: profile.id, parentId: parentFlow.id, triggerKeyword: selectedItem.option },
@@ -348,11 +516,14 @@ export class UserBotEngine extends BaseBotEngine {
                   data: { currentParentFlowId: childFlow.id },
                 });
                 matchedResponse = childFlow.responseMessage;
+              } else {
+                matchedResponse = `Has seleccionado: *${selectedItem.label}*. (Opción sin función ni submenú configurado).`;
               }
             }
+            logger.info({ matchedResponse }, 'Respuesta emparejada por selección numérica');
           }
-        } catch {
-          // JSON parse error
+        } catch (err) {
+          logger.error({ err }, 'Error parseando content de botFlow o procesando selección');
         }
       }
     }
@@ -368,9 +539,10 @@ export class UserBotEngine extends BaseBotEngine {
           matchedResponse = matchedRule.responseMessage;
         }
       } else {
-        const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
+        const invalidMsg = profile.invalidOptionMessage || "⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.";
+        const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
         if (rootFlow) {
-          let menuText = rootFlow.responseMessage + '\n\n';
+          let menuText = invalidMsg + '\n\n' + rootFlow.responseMessage + '\n\n';
           try {
             const parsed = JSON.parse(rootFlow.content);
             if (Array.isArray(parsed)) {
@@ -383,12 +555,12 @@ export class UserBotEngine extends BaseBotEngine {
           }
           matchedResponse = menuText.trim() + '\n\n0. ↩️ Volver';
         } else {
-          matchedResponse = `¡Bienvenido a ${profile.name}! Envía "0" para regresar al menú principal.`;
+          matchedResponse = `${invalidMsg}\n\nEnvía "0" para regresar al menú principal.`;
         }
       }
     }
 
-    await this.sendResponseToWhatsApp(senderPhone, matchedResponse || 'Respuesta por defecto', phoneNumberId);
+    await this.sendResponseToWhatsApp(senderPhone, matchedResponse || 'Respuesta por defecto', phoneNumberId, this.botId);
     return { processed: true, senderPhone, incomingText, matchedResponse, botId: profile.botId };
   }
 }

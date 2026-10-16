@@ -6,3 +6,5 @@ ngrok.log
 dist/
 build/
 .DS_Store
+api groq
+test-results/

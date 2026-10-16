@@ -51,6 +51,16 @@ export function getFrontendBaseUrl(customUrl?: string, reqContext?: { headers?: 
     return customUrl.replace(/\/$/, '');
   }
 
+  if (process.env.PAGINA) {
+    const p = process.env.PAGINA.startsWith('http') ? process.env.PAGINA : `https://${process.env.PAGINA}`;
+    return p.replace(/\/$/, '');
+  }
+
+  if (process.env.PAGE_URL) {
+    const p = process.env.PAGE_URL.startsWith('http') ? process.env.PAGE_URL : `https://${process.env.PAGE_URL}`;
+    return p.replace(/\/$/, '');
+  }
+
   if (reqContext?.headers) {
     const host = reqContext.headers['x-forwarded-host'] || reqContext.headers['host'];
     if (host) {

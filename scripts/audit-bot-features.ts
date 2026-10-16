@@ -5,7 +5,7 @@
  */
 
 import { prisma } from '@repo/database';
-import { BotFunctionRegistry, BotMemoryService } from '@repo/domain';
+import { BotFunctionRegistry, BotMemoryService, BotFunctionConfigService } from '@repo/domain';
 
 async function runAudit() {
   console.log('🤖 [AUDITORÍA] Iniciando simulación de creación de bot y pruebas de funciones...');
@@ -41,6 +41,7 @@ async function runAudit() {
 
     // 2. Simular interacción de cliente reservando un Turno
     console.log('\n[2/5] Probando función de Turnos (`turnos.book`)...');
+    await BotFunctionConfigService.saveConfig(auditBotId, 'turnos.book', { horarios: '10:00, 14:00, 18:00', servicio: 'Consulta Odontológica' });
     const turnResult = await BotFunctionRegistry.execute('turnos.book', {
       senderPhone: clientPhone,
       botId: auditBotId,

@@ -1,5 +1,5 @@
 import { prisma } from '@repo/database';
-import { BotService, BotProfileService } from '@repo/domain';
+import { BotService, BotProfileService, UserBotEngine } from '@repo/domain';
 import { logger } from '@repo/logger';
 
 async function runTest() {
@@ -16,6 +16,7 @@ async function runTest() {
     // 2. Crear perfil de bot con 3 niveles de menús
     const profile = await BotProfileService.createProfile({
       botId,
+      phoneNumber: senderPhone,
       name: 'Bot Jerárquico de Test',
       description: 'Bot con 3 niveles de submenús',
       type: 'custom',
@@ -32,7 +33,7 @@ async function runTest() {
         triggerKeyword: 'menu',
         flowType: 'menu',
         content: JSON.stringify([{ label: '1️⃣ Categorías', option: '1' }]),
-        responseMessage: '¡Hola! Bienvenido al Bot de Test 3 Niveles. Selecciona:',
+        responseMessage: '¡Hola! Bienvenido al Bot de Test 3 Niveles. Categorías disponibles:',
         isActive: true,
       },
     });
@@ -67,25 +68,22 @@ async function runTest() {
 
     console.log('✅ Bot y 3 niveles de submenús creados exitosamente en la BD.');
 
-    // 3. Simular interacción por webhook
+    const userBotEngine = new UserBotEngine(botId);
+    await prisma.botSession.upsert({
+      where: { senderPhone },
+      update: { activeBotId: botId, currentParentFlowId: null },
+      create: { senderPhone, activeBotId: botId, currentParentFlowId: null },
+    });
+
+    // 3. Simular interacción con UserBotEngine
     const sendMessage = async (text: string) => {
       console.log(`\n----------------------------------------`);
       console.log(`📤 Usuario envía: "${text}"`);
-      const res = await BotService.handleIncomingWebhook({
-        entry: [
-          {
-            changes: [
-              {
-                value: {
-                  messaging_product: 'whatsapp',
-                  metadata: { phone_number_id: '880275461842101' },
-                  messages: [{ from: senderPhone, text: { body: text } }],
-                },
-              },
-            ],
-          },
-        ],
-      }, botId);
+      const res = await userBotEngine.processMessage({
+        senderPhone,
+        incomingText: text,
+        phoneNumberId: '880275461842101',
+      });
       console.log(`📥 Bot responde:`, res.matchedResponse);
       return res;
     };

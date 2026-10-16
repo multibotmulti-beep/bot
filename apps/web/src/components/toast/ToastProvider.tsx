@@ -27,7 +27,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = useCallback(
-    (message: string, type: ToastType = 'info', duration: number = 3000) => {
+    (message: string, type: ToastType = 'info', duration: number = 3500) => {
       const id = Date.now();
       setToasts((prev) => [...prev, { id, message, type }]);
       setTimeout(() => {
@@ -39,9 +39,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleAuditEvent = (event: any) => {
-      console.log('Evento de auditoría recibido:', event.detail);
-      const { message, type } = event.detail;
-      addToast(message, type, 5000);
+      const { message, type } = event.detail || {};
+      if (message) {
+        addToast(message, type || 'info', 5000);
+      }
     };
 
     window.addEventListener('audit-event', handleAuditEvent);
@@ -52,28 +53,57 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ addToast }}>
       {children}
       <div
-        style={{ position: 'fixed', top: '1rem', right: '1rem', zIndex: 2000 }}
+        style={{
+          position: 'fixed',
+          top: '1.25rem',
+          right: '1.25rem',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          pointerEvents: 'none',
+        }}
       >
         {toasts.map((toast) => (
           <div
             key={toast.id}
             style={{
-              padding: '1rem',
-              marginBottom: '0.5rem',
-              borderRadius: '4px',
+              pointerEvents: 'auto',
+              padding: '12px 16px',
+              borderRadius: 'var(--radius-md)',
               backgroundColor:
                 toast.type === 'error'
-                  ? '#ffcccc'
+                  ? 'var(--color-error-bg)'
                   : toast.type === 'warn'
-                    ? '#fff3cd'
+                    ? 'var(--color-warning-bg)'
                     : toast.type === 'success'
-                      ? '#ccffcc'
-                      : '#e0e0e0',
+                      ? 'var(--color-success-bg)'
+                      : 'var(--color-surface)',
               color: 'var(--color-text)',
-              border: toast.type === 'warn' ? '1px solid #ffeeba' : 'none',
+              border: '1px solid',
+              borderColor:
+                toast.type === 'error'
+                  ? 'var(--color-error)'
+                  : toast.type === 'warn'
+                    ? 'var(--color-warning)'
+                    : toast.type === 'success'
+                      ? 'var(--color-success)'
+                      : 'var(--color-border)',
+              boxShadow: 'var(--shadow-card)',
+              fontSize: '14px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              minWidth: '300px',
+              maxWidth: '420px',
+              transition: 'all 0.2s ease-out',
             }}
           >
-            {toast.message}
+            <span style={{ fontSize: '16px', flexShrink: 0 }}>
+              {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : toast.type === 'warn' ? '⚠️' : 'ℹ️'}
+            </span>
+            <span style={{ flex: 1, wordBreak: 'break-word' }}>{toast.message}</span>
           </div>
         ))}
       </div>

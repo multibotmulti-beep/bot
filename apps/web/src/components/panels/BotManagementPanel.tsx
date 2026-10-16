@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import logger from '@/lib/logger';
-import { BotApiClient } from '@/lib/apiClient';
+import { BotApiClient, apiFetch } from '@/lib/apiClient';
+import { useToast } from '@/components/toast/ToastProvider';
 
 interface MenuOption {
   id: string;
@@ -22,6 +23,22 @@ const AVAILABLE_FUNCTIONS = [
   { key: 'mis.reservas', label: 'Consultar Mis Turnos y Pedidos' },
   { key: 'support.human', label: 'Derivar a Asesor Humano' },
   { key: 'auth.login', label: 'Autenticación / Magic Link' },
+];
+
+const COUNTRIES = [
+  { name: '🇦🇷 Argentina', code: '+54' },
+  { name: '🇲🇽 México', code: '+52' },
+  { name: '🇪🇸 España', code: '+34' },
+  { name: '🇨🇱 Chile', code: '+56' },
+  { name: '🇨🇴 Colombia', code: '+57' },
+  { name: '🇵🇪 Perú', code: '+51' },
+  { name: '🇺🇾 Uruguay', code: '+598' },
+  { name: '🇺🇸 Estados Unidos', code: '+1' },
+  { name: '🇧🇷 Brasil', code: '+55' },
+  { name: '🇪🇨 Ecuador', code: '+593' },
+  { name: '🇻🇪 Venezuela', code: '+58' },
+  { name: '🇧🇴 Bolivia', code: '+591' },
+  { name: '🇵🇾 Paraguay', code: '+595' },
 ];
 
 const SvgIcons = {
@@ -95,12 +112,20 @@ const SvgIcons = {
 };
 
 export default function BotManagementPanel() {
+  const { addToast } = useToast();
   const [step, setStep] = useState<1 | 2>(1);
 
   // Bot Data State
   const [botName, setBotName] = useState('Asistente Comercial');
-  const [botPhone, setBotPhone] = useState('5491155556666');
+  const [botPhone, setBotPhone] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('bot_user_phone');
+      if (stored && !stored.startsWith('guest_')) return stored;
+    }
+    return '+549' + Math.floor(1000000000 + Math.random() * 9000000000);
+  });
   const [welcomeMessage, setWelcomeMessage] = useState('¡Hola! Bienvenido a nuestro asistente virtual. ¿En qué podemos ayudarte hoy?');
+  const [invalidOptionMessage, setInvalidOptionMessage] = useState("⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.");
   
   // Menu Data State
   const [menuTitle, setMenuTitle] = useState('Menú Principal');
@@ -114,6 +139,10 @@ export default function BotManagementPanel() {
   ]);
 
   const [isCreated, setIsCreated] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authCountryCode, setAuthCountryCode] = useState('+54');
+  const [authLocalPhone, setAuthLocalPhone] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
   const [previewChat, setPreviewChat] = useState<{ sender: 'user' | 'bot'; text: string }[]>([]);
   const [isExecutingAction, setIsExecutingAction] = useState(false);
   const [lastRawResponse, setLastRawResponse] = useState<any>(null);
@@ -124,13 +153,15 @@ export default function BotManagementPanel() {
       .then((profiles) => {
         if (profiles && profiles.length > 0) {
           const activeSessionBot = typeof window !== 'undefined' ? sessionStorage.getItem('active_bot_id') : null;
-          const matched = profiles.find((p: any) => (p.botId || p.id) === activeSessionBot) || profiles[profiles.length - 1];
-          if (matched) {
-            setBotName(matched.name || 'Asistente Comercial');
-            setBotPhone(matched.botId || matched.phoneNumber || '5491155556666');
-            if (matched.welcomeMessage) setWelcomeMessage(matched.welcomeMessage);
+          const matched = activeSessionBot ? profiles.find((p: any) => (p.botId || p.id) === activeSessionBot) : null;
+          const targetMatched = matched || profiles[0];
+          if (targetMatched) {
+            setBotName(targetMatched.name || 'Asistente Comercial');
+            setBotPhone(targetMatched.botId || targetMatched.phoneNumber || '');
+            if (targetMatched.welcomeMessage) setWelcomeMessage(targetMatched.welcomeMessage);
+            if (targetMatched.invalidOptionMessage) setInvalidOptionMessage(targetMatched.invalidOptionMessage);
             if (typeof window !== 'undefined') {
-              sessionStorage.setItem('active_bot_id', matched.botId || matched.id);
+              sessionStorage.setItem('active_bot_id', targetMatched.botId || targetMatched.id);
             }
           }
         }
@@ -147,7 +178,10 @@ export default function BotManagementPanel() {
     if (opt.actionKey) {
       setIsExecutingAction(true);
       try {
-        const data = await BotApiClient.executeFunction(opt.actionKey, botPhone ? `+${botPhone.replace(/[^0-9]/g, '')}` : '+5491155556666', botPhone ? botPhone.replace(/[^0-9]/g, '') : 'admin');
+        const activeBotId = typeof window !== 'undefined' ? sessionStorage.getItem('active_bot_id') || undefined : undefined;
+        const currentPhone = typeof window !== 'undefined' ? localStorage.getItem('bot_user_phone') || undefined : undefined;
+        const dynamicPhone = currentPhone || ('+549' + Math.floor(1000000000 + Math.random() * 9000000000));
+        const data = await BotApiClient.executeFunction(opt.actionKey, dynamicPhone, activeBotId);
         setLastRawResponse({ actionKey: opt.actionKey, label: opt.label, response: data, timestamp: new Date().toISOString() });
         logger.info({ actionKey: opt.actionKey, rawResponse: data }, 'Ejecución de función en simulador y respuesta RAW capturada');
         const botReply = data.success ? data.message : `Error ejecutando función: ${data.message}`;
@@ -185,6 +219,7 @@ export default function BotManagementPanel() {
         name: botName,
         description: 'Bot creado desde Bot Manager',
         welcomeMessage,
+        invalidOptionMessage,
         options,
       });
       const activeId = createdBot?.botId || createdBot?.id;
@@ -195,7 +230,7 @@ export default function BotManagementPanel() {
       logger.info({ botName, botPhone, welcomeMessage, menuTitle, layoutType, optionsCount: options.length, activeId }, 'Nuevo bot creado mediante flujo asistido y sincronizado con base de datos');
     } catch (err: any) {
       logger.error({ err }, 'Error al crear bot en BotManagementPanel');
-      alert(`Error al crear bot: ${err.message}`);
+      addToast(`Error al crear bot: ${err.message}`, 'error');
     } finally {
       setIsExecutingAction(false);
     }
@@ -205,7 +240,7 @@ export default function BotManagementPanel() {
     setStep(1);
     setIsCreated(false);
     setBotName('Asistente Comercial');
-    setBotPhone('5491155556666');
+    setBotPhone('+549' + Math.floor(1000000000 + Math.random() * 9000000000));
     setWelcomeMessage('¡Hola! Bienvenido a nuestro asistente virtual. ¿En qué podemos ayudarte hoy?');
     setOptions([
       { id: '1', number: '1', label: 'Ver Catálogo' },
@@ -237,30 +272,223 @@ export default function BotManagementPanel() {
           }}>
             <SvgIcons.check />
           </div>
-          <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '12px' }}>Bot Creado Exitosamente</h2>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '15px', marginBottom: '28px', lineHeight: '1.6' }}>
-            El bot <strong>{botName}</strong> (ID: <code>{botPhone}</code>) ha sido configurado en la base de datos real con su mensaje de bienvenida y menús interactivos. Ya puedes configurarlo en el panel de funciones.
-          </p>
-          <button
-            type="button"
-            onClick={handleReset}
-            style={{
-              background: 'var(--color-primary)',
-              color: '#fff',
-              border: 'none',
-              padding: '12px 28px',
-              borderRadius: 'var(--radius-md)',
-              fontWeight: '600',
-              cursor: 'pointer',
-              boxShadow: 'var(--shadow-soft)',
-              display: 'inline-flex',
+          <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '16px', letterSpacing: '-0.02em' }}>Bot Creado Exitosamente</h2>
+          <div style={{
+            textAlign: 'left',
+            margin: '0 auto 28px auto',
+            maxWidth: '480px',
+            background: 'var(--color-background)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            padding: '20px',
+            boxShadow: 'var(--shadow-soft)',
+          }}>
+            <p style={{ fontWeight: '600', marginBottom: '12px', textAlign: 'center', fontSize: '15px', color: 'var(--color-text)' }}>
+              Beneficios al iniciar sesión con WhatsApp:
+            </p>
+            <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px', color: 'var(--color-text-muted)' }}>
+              <li>Se activa el panel chat para visualizar los chats de los usuarios que interactúen con el bot.</li>
+              <li>Bot publicado para que cualquiera interactúe vía WhatsApp.</li>
+              <li>1 bot activo públicamente.</li>
+              <li>Acceso a soporte técnico.</li>
+            </ul>
+          </div>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setIsAuthModalOpen(true)}
+              style={{
+                background: '#25D366',
+                color: '#fff',
+                border: 'none',
+                padding: '12px 28px',
+                borderRadius: 'var(--radius-md)',
+                fontWeight: '600',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-soft)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '14px',
+              }}
+            >
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              style={{
+                background: 'var(--color-primary)',
+                color: '#fff',
+                border: 'none',
+                padding: '12px 28px',
+                borderRadius: 'var(--radius-md)',
+                fontWeight: '600',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-soft)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '14px',
+              }}
+            >
+              <SvgIcons.refresh /> Crear Otro Bot
+            </button>
+          </div>
+
+          {/* Modal Personalizado de Inicio de Sesión con Selector de País */}
+          {isAuthModalOpen && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              fontSize: '14px',
-            }}
-          >
-            <SvgIcons.refresh /> Crear Otro Bot
-          </button>
+              justifyContent: 'center',
+              zIndex: 10000,
+              padding: '20px',
+            }}>
+              <div style={{
+                background: 'var(--color-surface)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '32px',
+                width: '100%',
+                maxWidth: '420px',
+                border: '1px solid var(--color-border)',
+                boxShadow: 'var(--shadow-card)',
+                textAlign: 'left',
+              }}>
+                <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: 'var(--color-text)' }}>
+                  Iniciar sesión con WhatsApp
+                </h3>
+                <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>
+                  Selecciona tu país e ingresa tu número real para verificar tu sesión y activar el bot.
+                </p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const fullPhone = `${authCountryCode}${authLocalPhone.replace(/^0+/, '').replace(/\D/g, '')}`;
+                  if (!authLocalPhone.trim()) {
+                    addToast('Por favor, ingresa un número de teléfono válido.', 'warn');
+                    return;
+                  }
+                  setAuthLoading(true);
+                  try {
+                    const data = await apiFetch('/api/auth/initiate-whatsapp', {
+                      method: 'POST',
+                      body: JSON.stringify({ phoneNumber: fullPhone.trim() }),
+                    });
+                    if (data.success && data.data?.whatsappLink) {
+                      localStorage.setItem('bot_user_phone', fullPhone.trim());
+                      localStorage.removeItem('is_anonymous');
+                      if (typeof window !== 'undefined') {
+                        sessionStorage.setItem('active_bot_id', botPhone);
+                      }
+                      window.open(data.data.whatsappLink, '_blank');
+                      addToast('¡Enlace de inicio de sesión generado! Envía el mensaje por WhatsApp.', 'success');
+                      setIsAuthModalOpen(false);
+                    } else {
+                      addToast('Error al generar enlace de WhatsApp.', 'error');
+                    }
+                  } catch (err: any) {
+                    addToast(`Error: ${err.message}`, 'error');
+                  } finally {
+                    setAuthLoading(false);
+                  }
+                }}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--color-text)' }}>
+                      País
+                    </label>
+                    <select
+                      value={authCountryCode}
+                      onChange={(e) => setAuthCountryCode(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-background)',
+                        color: 'var(--color-text)',
+                        fontSize: '14px',
+                      }}
+                    >
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.name} ({c.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--color-text)' }}>
+                      Número de teléfono (sin 0 ni 15)
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ padding: '10px 12px', background: 'var(--color-background)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '14px', fontWeight: '600', color: 'var(--color-text)' }}>
+                        {authCountryCode}
+                      </span>
+                      <input
+                        type="tel"
+                        placeholder="Ej: 91123456789"
+                        value={authLocalPhone}
+                        onChange={(e) => setAuthLocalPhone(e.target.value)}
+                        autoFocus
+                        style={{
+                          flex: 1,
+                          padding: '10px 12px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--color-border)',
+                          backgroundColor: 'var(--color-background)',
+                          color: 'var(--color-text)',
+                          fontSize: '14px',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthModalOpen(false)}
+                      style={{
+                        padding: '10px 18px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        background: 'transparent',
+                        color: 'var(--color-text)',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={authLoading}
+                      style={{
+                        padding: '10px 20px',
+                        borderRadius: 'var(--radius-md)',
+                        border: 'none',
+                        background: '#25D366',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        opacity: authLoading ? 0.7 : 1,
+                      }}
+                    >
+                      {authLoading ? 'Generando...' : 'Verificar y Enviar'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -390,6 +618,25 @@ export default function BotManagementPanel() {
                 onChange={(e) => setWelcomeMessage(e.target.value)}
                 rows={3}
                 placeholder="Escribe el mensaje inicial..."
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-background)',
+                  color: 'var(--color-text)',
+                  fontSize: '14px',
+                }}
+              />
+            </div>
+
+            <div style={{ marginTop: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Mensaje de Opción Incorrecta / Error (Fallback)</label>
+              <textarea
+                value={invalidOptionMessage}
+                onChange={(e) => setInvalidOptionMessage(e.target.value)}
+                rows={2}
+                placeholder="Mensaje cuando el usuario envía una opción inválida..."
                 style={{
                   width: '100%',
                   padding: '10px 14px',

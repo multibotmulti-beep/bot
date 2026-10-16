@@ -22,6 +22,8 @@ export function useUserSession() {
         const saved = localStorage.getItem('bot_user_phone');
         if (saved) {
           setUserPhone(saved);
+        } else {
+          setUserPhone(null);
         }
       }
       setIsLoaded(true);

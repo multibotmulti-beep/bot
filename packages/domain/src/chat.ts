@@ -26,37 +26,32 @@ export class ChatService {
     });
   }
 
-  static async getConversations(phoneNumber?: string) {
-    if (!phoneNumber || !phoneNumber.trim()) {
-      return []; // En modo anónimo o sin sesión, no se deben mostrar chats
-    }
-
-    const isAdmin = AuthService.isAdmin(phoneNumber);
+  static async getConversations(phoneNumber?: string, botId?: string) {
     let where: any = {};
 
-    if (!isAdmin && phoneNumber) {
-      const cleanPhone = phoneNumber.trim();
-      const userBots = await prisma.botProfile.findMany({
-        where: {
-          OR: [
-            { phoneNumber: cleanPhone },
-            { user: { phoneNumber: cleanPhone } }
-          ]
-        },
-        select: { botId: true },
-      });
-      const botIds = userBots.map(b => b.botId);
-      where = {
-        AND: [
-          { botId: { not: 'admin' } },
-          {
+    if (botId && botId.trim() !== '') {
+      where.botId = botId.trim();
+    } else if (phoneNumber && phoneNumber.trim()) {
+      const isAdmin = AuthService.isAdmin(phoneNumber);
+      if (!isAdmin) {
+        const cleanPhone = phoneNumber.trim();
+        const userBots = await prisma.botProfile.findMany({
+          where: {
             OR: [
-              { botId: { in: botIds } },
-              { senderPhone: cleanPhone }
+              { phoneNumber: cleanPhone },
+              { user: { phoneNumber: cleanPhone } }
             ]
-          }
-        ]
-      };
+          },
+          select: { botId: true },
+        });
+        const botIds = userBots.map(b => b.botId);
+        where = {
+          AND: [
+            { botId: { not: 'admin' } },
+            { botId: { in: botIds } }
+          ]
+        };
+      }
     }
 
     const messages = await prisma.chatMessage.findMany({

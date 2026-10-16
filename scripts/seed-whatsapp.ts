@@ -11,15 +11,19 @@ async function seed() {
       // Ignorar si no existe
     }
 
+    const rawPage = process.env.PAGINA || process.env.PAGE_URL || process.env.FRONTEND_URL || 'https://botmenu.com';
+    const pageUrl = rawPage.startsWith('http') ? rawPage : `https://${rawPage}`;
+    const targetUrl = `${pageUrl.replace(/\/$/, '')}/webhooks/whatsapp`;
+
     const credential = await CredentialService.createCredential({
       apiName: 'whatsapp',
       apiKey: 'EAAWpnXQ6Y8UBSuStpAGsK92XgZBjq0MYsVhLAFEsWG0M9SJgdtZCq6gzCPIWDPaPtfPi8ZBaid36w9gIZAZAM5Vl8ZBZABw08H6KEzlVsndbFBZAwdtJkz9in83bBZBs7UBDIZAJzWISUbtPDduVNmpbcJZBFvhSjD9AAwh2VXqhhyiC4u64uEDbePY0z1c9wH6WAZDZD',
       apiSecret: 'waba_id_2706891212982443_phone_id_880275461842101',
-      targetUrl: 'https://unmended-modestly-ephraim.ngrok-free.dev/webhooks/whatsapp',
+      targetUrl,
       isActive: true,
     });
 
-    console.log('¡Credenciales de WhatsApp Business configuradas exitosamente con la URL de ngrok!', credential);
+    console.log(`¡Credenciales de WhatsApp Business configuradas exitosamente con la URL: ${targetUrl}!`, credential);
   } catch (err) {
     console.error('Error al configurar credenciales:', err);
     process.exit(1);
