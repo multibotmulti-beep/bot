@@ -105,7 +105,8 @@ export const BotApiClient = {
     const menuOptions = botData.options.map(opt => ({
       label: opt.label,
       option: opt.number || opt.id || '1',
-      actionKey: opt.actionKey || undefined
+      actionKey: opt.actionKey || undefined,
+      customResponse: opt.customResponse || undefined
     }));
 
     // 1. Crear perfil de bot y su flujo de menú raíz con opciones en la base de datos real

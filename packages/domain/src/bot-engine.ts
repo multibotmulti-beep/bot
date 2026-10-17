@@ -39,6 +39,7 @@ export function normalizeSenderPhone(phone: string): string {
 export abstract class BaseBotEngine {
   protected async getOrCreateSession(senderPhone: string, defaultBotId: string) {
     const cleanPhone = normalizeSenderPhone(senderPhone);
+    const suffix = cleanPhone.slice(-8);
     let session = await prisma.botSession.findUnique({ where: { senderPhone: cleanPhone } });
     if (!session) {
       session = await prisma.botSession.findFirst({
@@ -46,7 +47,7 @@ export abstract class BaseBotEngine {
           OR: [
             { senderPhone },
             { senderPhone: cleanPhone },
-            { senderPhone: { endsWith: cleanPhone.slice(-10) } }
+            ...(suffix.length >= 8 ? [{ senderPhone: { endsWith: suffix } }] : [])
           ]
         }
       });
@@ -59,7 +60,7 @@ export abstract class BaseBotEngine {
           OR: [
             { phoneNumber: senderPhone },
             { phoneNumber: cleanPhone },
-            { phoneNumber: { endsWith: cleanPhone.slice(-10) } }
+            ...(suffix.length >= 8 ? [{ phoneNumber: { endsWith: suffix } }] : [])
           ],
           isActive: true
         },
@@ -142,23 +143,64 @@ export class MasterBotEngine extends BaseBotEngine {
     const { senderPhone, incomingText, phoneNumberId, rawPayload } = context;
     logger.info({ senderPhone, incomingText }, 'MasterBotEngine procesando mensaje');
 
-    // 0. Gestionar sesión activa y delegación jerárquica prioritaria
     let session = await this.getOrCreateSession(senderPhone, BotConfig.defaultBotId);
     let activeBotId = session.activeBotId;
 
     const trimmedInput = incomingText.trim();
     const lowerInput = trimmedInput.toLowerCase();
 
-    // Si el usuario envía comandos explícitos de salida, regresar al Bot Admin
+    // 0. Interceptar comandos globales del sistema (salida y activación de bots) desde cualquier estado
     if (lowerInput === '0' || lowerInput === 'volver' || lowerInput === 'admin' || lowerInput === 'salir') {
       activeBotId = BotConfig.defaultBotId;
       await prisma.botSession.update({
-        where: { senderPhone },
+        where: { senderPhone: session.senderPhone },
         data: { activeBotId: BotConfig.defaultBotId, currentParentFlowId: null, wizardStep: 0 },
       });
+      const adminMsg = '↩️ Regresando al menú principal de administración.';
+      await this.sendResponseToWhatsApp(senderPhone, adminMsg, phoneNumberId);
+      return { processed: true, response: adminMsg };
     }
 
-    // Si el usuario está conectado a un bot hijo (UserBotEngine) y no pidió salir, delegar inmediatamente
+    if (lowerInput.startsWith('activar ') || lowerInput.startsWith('usar ') || lowerInput.startsWith('llamar ') || lowerInput.startsWith('bot ')) {
+      const targetQuery = trimmedInput.replace(/^(activar|usar|llamar|bot)\s*/i, '').trim();
+      const userBots = await BotProfileService.getBotsForUser(senderPhone);
+
+      if (!targetQuery) {
+        const listText = userBots.length > 0
+          ? `🤖 *Tus Bots Disponibles:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Envía \`activar [ID o nombre]\` para interactuar con él.`
+          : `❌ Este número no posee bot activo.`;
+        await this.sendResponseToWhatsApp(senderPhone, listText, phoneNumberId);
+        return { processed: true, response: listText };
+      }
+
+      const targetProfile = await prisma.botProfile.findFirst({
+        where: {
+          OR: [
+            { botId: targetQuery },
+            { phoneNumber: { contains: targetQuery } },
+            { name: { contains: targetQuery, mode: 'insensitive' } }
+          ]
+        }
+      });
+
+      if (targetProfile) {
+        await BotProfileService.activateProfile(targetProfile.id);
+        await prisma.botSession.update({
+          where: { senderPhone: session.senderPhone },
+          data: { activeBotId: targetProfile.botId, currentParentFlowId: null },
+        });
+        const successMsg = `🚀 ¡Bot *${targetProfile.name}* (ID: \`${targetProfile.botId}\`) activado exitosamente!`;
+        await this.sendResponseToWhatsApp(senderPhone, successMsg, phoneNumberId);
+        const userBotEngine = this.createUserBotEngine(targetProfile.botId);
+        return await userBotEngine.processMessage({ ...context, incomingText: 'menu' });
+      } else {
+        const errText = `❌ No se encontró ningún bot con el identificador, número o nombre "${targetQuery}".`;
+        await this.sendResponseToWhatsApp(senderPhone, errText, phoneNumberId);
+        return { processed: true, response: errText };
+      }
+    }
+
+    // Si el usuario está conectado a un bot hijo (UserBotEngine) y no ejecutó comandos globales, delegar inmediatamente
     if (activeBotId !== 'admin') {
       const childBot = await prisma.botProfile.findUnique({ where: { botId: activeBotId } });
       if (childBot && childBot.isActive) {
@@ -227,7 +269,7 @@ export class MasterBotEngine extends BaseBotEngine {
 
         if (activeBotRecord) {
           await prisma.botSession.update({
-            where: { senderPhone },
+            where: { senderPhone: session.senderPhone },
             data: { activeBotId: activeBotRecord.botId },
           });
         }
@@ -265,7 +307,7 @@ export class MasterBotEngine extends BaseBotEngine {
       const activeBot = userBots[0];
       if (activeBot) {
         await prisma.botSession.update({
-          where: { senderPhone },
+          where: { senderPhone: session.senderPhone },
           data: { activeBotId: activeBot.botId },
         });
         const userBotEngine = this.createUserBotEngine(activeBot.botId);
@@ -283,60 +325,20 @@ export class MasterBotEngine extends BaseBotEngine {
       return { processed: true, response: supportMsg };
     }
 
-    // Interceptar comando "activar [botId]" o "usar [botId]"
-    if (cleanText.startsWith('activar ') || cleanText.startsWith('usar ')) {
-      const targetBotId = incomingText.trim().replace(/^(activar|usar)\s*/i, '').trim();
-      const targetProfile = await prisma.botProfile.findFirst({
-        where: {
-          OR: [
-            { botId: targetBotId },
-            { name: { contains: targetBotId, mode: 'insensitive' } }
-          ],
-          phoneNumber: senderPhone
-        }
-      });
+    // Interceptar comandos de activación: "activar", "usar", "llamar", "bot"
+    if (cleanText.startsWith('activar ') || cleanText.startsWith('usar ') || cleanText.startsWith('llamar ') || cleanText.startsWith('bot ')) {
+      const targetQuery = incomingText.trim().replace(/^(activar|usar|llamar|bot)\s*/i, '').trim();
+      const userBots = await BotProfileService.getBotsForUser(senderPhone);
 
-      if (targetProfile) {
-        await BotProfileService.activateProfile(targetProfile.id);
-        await prisma.botSession.update({
-          where: { senderPhone },
-          data: { activeBotId: targetProfile.botId, currentParentFlowId: null },
-        });
-        const userBotEngine = this.createUserBotEngine(targetProfile.botId);
-        return await userBotEngine.processMessage({ ...context, incomingText: 'menu' });
-      } else {
-        const errText = `❌ No se encontró ningún bot tuyo con el identificador o nombre "${targetBotId}". Envía "mis bots" para ver tu lista.`;
-        await this.sendResponseToWhatsApp(senderPhone, errText, phoneNumberId);
-        return { processed: true, response: errText };
-      }
-    }
-
-    // Interceptar comando "mis bots" o "bots"
-    if (cleanText === 'mis bots' || cleanText === 'bots') {
-      const userRecord = await prisma.user.findUnique({ where: { phoneNumber: senderPhone } });
-      const userBots = await BotProfileService.getBotsForUser(senderPhone, userRecord?.id);
-
-      const listText = userBots.length > 0
-        ? `🤖 *Tus Bots Registrados:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Para activar uno, envía:\n*activar [ID del bot]*`
-        : `🤖 No tienes ningún bot registrado aún.`;
-
-      await this.sendResponseToWhatsApp(senderPhone, listText, phoneNumberId);
-      return { processed: true, response: listText };
-    }
-
-    // Interceptar comando "bot [id_o_numero]" para activar, cambiar sesión e interactuar con el bot
-    if (cleanText === 'bot' || cleanText.startsWith('bot ')) {
-      const targetQuery = incomingText.trim().replace(/^bot\s*/i, '').trim();
       if (!targetQuery) {
-        const userRecord = await prisma.user.findUnique({ where: { phoneNumber: senderPhone } });
-        const userBots = await BotProfileService.getBotsForUser(senderPhone, userRecord?.id);
         const listText = userBots.length > 0
-          ? `🤖 *Tus Bots Disponibles:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Envía \`bot [ID o número]\` para interactuar con él.`
-          : `🤖 No tienes ningún bot registrado aún.`;
+          ? `🤖 *Tus Bots Disponibles:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Envía \`activar [ID o nombre]\` para interactuar con él.`
+          : `❌ Este número no posee bot activo.`;
         await this.sendResponseToWhatsApp(senderPhone, listText, phoneNumberId);
         return { processed: true, response: listText };
       }
 
+      const cleanSender = normalizeSenderPhone(senderPhone);
       const targetProfile = await prisma.botProfile.findFirst({
         where: {
           OR: [
@@ -350,16 +352,39 @@ export class MasterBotEngine extends BaseBotEngine {
       if (targetProfile) {
         await BotProfileService.activateProfile(targetProfile.id);
         await prisma.botSession.update({
-          where: { senderPhone },
+          where: { senderPhone: session.senderPhone },
           data: { activeBotId: targetProfile.botId, currentParentFlowId: null },
         });
+        const successMsg = `🚀 ¡Bot *${targetProfile.name}* (ID: \`${targetProfile.botId}\`) activado exitosamente!`;
+        await this.sendResponseToWhatsApp(senderPhone, successMsg, phoneNumberId);
         const userBotEngine = this.createUserBotEngine(targetProfile.botId);
         return await userBotEngine.processMessage({ ...context, incomingText: 'menu' });
       } else {
-        const errText = `❌ No hay ningún bot con ese número o identificador "${targetQuery}".`;
+        const errText = `❌ No se encontró ningún bot con el identificador, número o nombre "${targetQuery}".`;
         await this.sendResponseToWhatsApp(senderPhone, errText, phoneNumberId);
         return { processed: true, response: errText };
       }
+    }
+
+    // Verificar si el número posee algún bot activo
+    const userBotsCheck = await BotProfileService.getBotsForUser(senderPhone);
+    if (userBotsCheck.length === 0 && activeBotId === 'admin' && !isVerificationCommand && trimmedInput !== '2' && cleanText !== 'mis bots' && cleanText !== 'bots') {
+      const noBotMsg = '❌ Este número no posee bot activo.';
+      await this.sendResponseToWhatsApp(senderPhone, noBotMsg, phoneNumberId);
+      return { processed: true, response: noBotMsg };
+    }
+
+    // Interceptar comando "mis bots" o "bots"
+    if (cleanText === 'mis bots' || cleanText === 'bots') {
+      const userRecord = await prisma.user.findUnique({ where: { phoneNumber: senderPhone } });
+      const userBots = await BotProfileService.getBotsForUser(senderPhone, userRecord?.id);
+
+      const listText = userBots.length > 0
+        ? `🤖 *Tus Bots Registrados:*\n\n` + userBots.map((b, i) => `${i + 1}. *${b.name}* (ID: \`${b.botId}\`) [${b.isActive ? '🟢 Activo' : '⚪ Inactivo'}]`).join('\n') + `\n\n💡 Para activar uno, envía:\n*activar [ID del bot]*`
+        : `❌ Este número no posee bot activo.`;
+
+      await this.sendResponseToWhatsApp(senderPhone, listText, phoneNumberId);
+      return { processed: true, response: listText };
     }
 
     // 3. Cargar perfil Admin desde Base de Datos
@@ -389,7 +414,9 @@ export class MasterBotEngine extends BaseBotEngine {
           const contentJson = JSON.parse(parentFlow.content);
           if (Array.isArray(contentJson) && contentJson[optIndex]) {
             const selectedItem = contentJson[optIndex];
-            if (selectedItem.actionKey) {
+            if (selectedItem.customResponse !== undefined && selectedItem.customResponse !== '') {
+              matchedResponse = selectedItem.customResponse;
+            } else if (selectedItem.actionKey) {
               const result = await BotFunctionRegistry.execute(selectedItem.actionKey, { senderPhone, botId: profile.botId });
               matchedResponse = result.message;
             } else if (selectedItem.option) {
@@ -398,7 +425,7 @@ export class MasterBotEngine extends BaseBotEngine {
               });
               if (childFlow) {
                 await prisma.botSession.update({
-                  where: { senderPhone },
+                  where: { senderPhone: session.senderPhone },
                   data: { currentParentFlowId: childFlow.id },
                 });
                 matchedResponse = childFlow.responseMessage;
@@ -462,6 +489,8 @@ export class UserBotEngine extends BaseBotEngine {
     const { senderPhone, incomingText, phoneNumberId } = context;
     logger.info({ senderPhone, incomingText, botId: this.botId }, 'UserBotEngine procesando mensaje de bot hijo');
 
+    let session = await this.getOrCreateSession(senderPhone, this.botId);
+
     const profile = await prisma.botProfile.findUnique({
       where: { botId: this.botId },
       include: { rules: true, flows: true },
@@ -470,7 +499,7 @@ export class UserBotEngine extends BaseBotEngine {
     if (!profile || !profile.isActive) {
       const err = `El bot hijo [${this.botId}] no está activo o no existe. Regresando al menú principal.`;
       await prisma.botSession.update({
-        where: { senderPhone },
+        where: { senderPhone: session.senderPhone },
         data: { activeBotId: BotConfig.defaultBotId, currentParentFlowId: null },
       });
       await this.sendResponseToWhatsApp(senderPhone, err, phoneNumberId);
@@ -478,7 +507,6 @@ export class UserBotEngine extends BaseBotEngine {
     }
 
     let matchedResponse: string | null = null;
-    let session = await this.getOrCreateSession(senderPhone, this.botId);
     const currentParentId = session.currentParentFlowId || null;
 
     const flows = await prisma.botFlow.findMany({
@@ -499,8 +527,21 @@ export class UserBotEngine extends BaseBotEngine {
           if (Array.isArray(contentJson) && contentJson[optIndex]) {
             const selectedItem = contentJson[optIndex];
             logger.info({ selectedItem }, 'Item seleccionado del menú');
-            if (selectedItem.actionKey) {
-              const result = await BotFunctionRegistry.execute(selectedItem.actionKey, { senderPhone, botId: profile.botId });
+            let actionKey = selectedItem.actionKey;
+            if (!actionKey && selectedItem.label) {
+              const lbl = selectedItem.label.toLowerCase();
+              if (lbl.includes('stock') || lbl.includes('inventario') || lbl.includes('catalogo')) actionKey = 'stock.check';
+              else if (lbl.includes('pago') || lbl.includes('cobro') || lbl.includes('cbu') || lbl.includes('alias') || lbl.includes('banco')) actionKey = 'business.payment_info';
+              else if (lbl.includes('turno') || lbl.includes('reserva')) actionKey = 'turnos.book';
+              else if (lbl.includes('pedido') || lbl.includes('compra')) actionKey = 'pedidos.create';
+              else if (lbl.includes('asesor') || lbl.includes('soporte') || lbl.includes('humano')) actionKey = 'support.human';
+              else if (selectedItem.option === '1') actionKey = 'stock.check';
+              else if (selectedItem.option === '2') actionKey = 'business.payment_info';
+              else if (selectedItem.option === '3') actionKey = 'turnos.book';
+            }
+
+            if (actionKey) {
+              const result = await BotFunctionRegistry.execute(actionKey, { senderPhone, botId: profile.botId });
               matchedResponse = result.message;
             } else if (selectedItem.response) {
               matchedResponse = selectedItem.response;
@@ -512,7 +553,7 @@ export class UserBotEngine extends BaseBotEngine {
               });
               if (childFlow) {
                 await prisma.botSession.update({
-                  where: { senderPhone },
+                  where: { senderPhone: session.senderPhone },
                   data: { currentParentFlowId: childFlow.id },
                 });
                 matchedResponse = childFlow.responseMessage;

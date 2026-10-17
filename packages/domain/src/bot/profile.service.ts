@@ -87,7 +87,7 @@ export class BotProfileService {
 
   static async getBotsForUser(phoneNumber: string, userId?: string) {
     const cleanPhone = phoneNumber ? phoneNumber.replace(/[^0-9]/g, '') : '';
-    const suffix = cleanPhone.slice(-10);
+    const suffix = cleanPhone.slice(-8);
 
     const matchingUsers = await prisma.user.findMany({
       where: {

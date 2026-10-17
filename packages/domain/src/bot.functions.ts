@@ -210,6 +210,19 @@ export class BotFunctionRegistry {
       handler: async (ctx) => {
         logger.info({ ctx }, 'RAW DEBUG: Ejecutando stock.check con contexto');
         const { prisma } = await import('@repo/database');
+        const stockCfg = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage', ctx.localConfig);
+
+        if (stockCfg.success && stockCfg.config && Array.isArray(stockCfg.config.items) && stockCfg.config.items.length > 0) {
+          const listText = stockCfg.config.items.map((item: any, idx: number) =>
+            `${idx + 1}. *${item.product || 'Producto'}* (${item.categoria || 'General'}) - Stock: 🟢 **${item.qty || 0} unidades** - Precio: $${item.precio || '0'}`
+          ).join('\n');
+          return {
+            success: true,
+            message: `📦 *Inventario Actual (Bot: ${ctx.botId}):*\n\n${listText}`,
+            data: { stock: stockCfg.config.items }
+          };
+        }
+
         const memories = await prisma.botMemory.findMany({
           where: { botId: ctx.botId, category: 'stock' },
           orderBy: { createdAt: 'desc' },
@@ -217,7 +230,6 @@ export class BotFunctionRegistry {
         });
 
         if (memories.length === 0) {
-          const stockCfg = await BotFunctionConfigService.getConfig(ctx.botId, 'stock.manage', ctx.localConfig);
           logger.info({ stockCfg, botId: ctx.botId, localConfig: ctx.localConfig }, 'RAW DEBUG: Resultado de getConfig en stock.check');
           if (stockCfg.success && stockCfg.config && stockCfg.config.product) {
             const cfg = stockCfg.config;
@@ -361,6 +373,87 @@ export class BotFunctionRegistry {
       description: 'Deriva la conversación a un asesor humano',
       handler: async (ctx) => {
         return { success: true, message: `👤 Tu solicitud de atención con un asesor humano ha sido registrada para el número ${ctx.senderPhone}. Un representante se contactará contigo a la brevedad.` };
+      },
+    });
+
+    this.register({
+      actionKey: 'custom.messages',
+      description: 'Banco de mensajes personalizados y menús dinámicos creados por el negocio',
+      handler: async (ctx) => {
+        const customCfg = await BotFunctionConfigService.getConfig(ctx.botId, 'custom.messages', ctx.localConfig);
+        if (customCfg.success && customCfg.config && Array.isArray(customCfg.config.messages) && customCfg.config.messages.length > 0) {
+          const requestedShortcut = ctx.args?.shortcut || ctx.args?.title;
+          if (requestedShortcut) {
+            const found = customCfg.config.messages.find((m: any) => 
+              m.shortcut?.toLowerCase() === String(requestedShortcut).toLowerCase() ||
+              m.title?.toLowerCase().includes(String(requestedShortcut).toLowerCase())
+            );
+            if (found) {
+              return { success: true, message: found.content, data: { message: found } };
+            }
+          }
+
+          const listText = customCfg.config.messages.map((m: any, idx: number) =>
+            `${idx + 1}. *${m.title}* ${m.shortcut ? `(Atajo: \`${m.shortcut}\`)` : ''}\n${m.content}\n`
+          ).join('\n---\n');
+
+          return {
+            success: true,
+            message: `💬 *Información y Mensajes del Negocio:*\n\n${listText}`,
+            data: { messages: customCfg.config.messages }
+          };
+        }
+        return { success: true, message: `💬 No hay mensajes personalizados configurados aún en este bot.` };
+      },
+    });
+
+    this.register({
+      actionKey: 'custom.free_menu',
+      description: 'Menú libre y respuesta personalizada con nombre de menú y texto libre editables',
+      handler: async (ctx) => {
+        const cfg = await BotFunctionConfigService.getConfig(ctx.botId, 'custom.free_menu', ctx.localConfig);
+        if (cfg.success && cfg.config) {
+          const menuName = cfg.config.menuName || 'Menú Personalizado';
+          const menuResponse = cfg.config.menuResponse || 'Respuesta de texto libre personalizada.';
+          return {
+            success: true,
+            message: `🎛️ *${menuName}*\n\n${menuResponse}`,
+            data: cfg.config
+          };
+        }
+        return {
+          success: true,
+          message: `🎛️ Menú Libre: Configura el nombre del menú y la respuesta de texto libre desde el panel de funciones.`
+        };
+      },
+    });
+
+    this.register({
+      actionKey: 'custom.menu_builder',
+      description: 'Creador de Menús Dinámicos con texto superior opcional y opciones de submenú estructuradas',
+      handler: async (ctx) => {
+        const cfg = await BotFunctionConfigService.getConfig(ctx.botId, 'custom.menu_builder', ctx.localConfig);
+        if (cfg.success && cfg.config) {
+          const headerText = cfg.config.headerText ? `${cfg.config.headerText}\n\n` : '';
+          const menuTitle = cfg.config.menuTitle || '📂 Menú Dinámico';
+          const options = Array.isArray(cfg.config.options) && cfg.config.options.length > 0
+            ? cfg.config.options
+            : [
+                { number: '1', label: 'Opción A' },
+                { number: '2', label: 'Opción B' },
+              ];
+
+          const optionsList = options.map((opt: any) => `${opt.number}. ${opt.label}`).join('\n');
+          return {
+            success: true,
+            message: `${headerText}📂 *${menuTitle}*\n\n${optionsList}`,
+            data: cfg.config
+          };
+        }
+        return {
+          success: true,
+          message: `📂 *Menú Dinámico de Submenú*\n\n1. Opción 1\n2. Opción 2\n\n(Configurable desde el panel de funciones avanzadas)`
+        };
       },
     });
   }

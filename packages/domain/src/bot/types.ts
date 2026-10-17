@@ -6,7 +6,12 @@ export const CreateBotProfileSchema = z.object({
   description: z.string().optional(),
   welcomeMessage: z.string().optional(),
   invalidOptionMessage: z.string().optional(),
-  menuOptions: z.array(z.object({ label: z.string(), option: z.string() })).optional(),
+  menuOptions: z.array(z.object({
+    label: z.string(),
+    option: z.string(),
+    actionKey: z.string().optional(),
+    customResponse: z.string().optional()
+  })).optional(),
   type: z.enum(['demo', 'custom', 'system']).default('custom'),
   isPublic: z.boolean().default(true),
   isActive: z.boolean().default(true),

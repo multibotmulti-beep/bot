@@ -10,6 +10,7 @@ interface MenuOption {
   number: string;
   label: string;
   actionKey?: string;
+  customResponse?: string;
 }
 
 const AVAILABLE_FUNCTIONS = [
@@ -23,6 +24,9 @@ const AVAILABLE_FUNCTIONS = [
   { key: 'mis.reservas', label: 'Consultar Mis Turnos y Pedidos' },
   { key: 'support.human', label: 'Derivar a Asesor Humano' },
   { key: 'auth.login', label: 'Autenticación / Magic Link' },
+  { key: 'custom.messages', label: '💬 Banco de Mensajes y Menús Personalizados' },
+  { key: 'custom.free_menu', label: '🎛️ Menú Libre y Respuesta Personalizada' },
+  { key: 'custom.menu_builder', label: '📂 Creador de Menús Dinámicos (Texto + Menú)' },
 ];
 
 const COUNTRIES = [
@@ -68,18 +72,6 @@ const SvgIcons = {
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
-  arrowRight: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
-    </svg>
-  ),
-  arrowLeft: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="12" x2="5" y2="12" />
-      <polyline points="12 19 5 12 12 5" />
-    </svg>
-  ),
   refresh: () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="23 4 23 10 17 10" />
@@ -104,16 +96,16 @@ const SvgIcons = {
       <line x1="12" y1="18" x2="12.01" y2="18" />
     </svg>
   ),
-  lightning: () => (
+  edit: () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
   )
 };
 
 export default function BotManagementPanel() {
   const { addToast } = useToast();
-  const [step, setStep] = useState<1 | 2>(1);
 
   // Bot Data State
   const [botName, setBotName] = useState('Asistente Comercial');
@@ -138,44 +130,67 @@ export default function BotManagementPanel() {
     { id: '5', number: '5', label: 'Hablar con Asesor', actionKey: 'support.human' },
   ]);
 
-  const [isCreated, setIsCreated] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authCountryCode, setAuthCountryCode] = useState('+54');
-  const [authLocalPhone, setAuthLocalPhone] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [previewChat, setPreviewChat] = useState<{ sender: 'user' | 'bot'; text: string }[]>([]);
+  const [previewChat, setPreviewChat] = useState<{ id: string; sender: 'user' | 'bot'; text: string }[]>([]);
   const [isExecutingAction, setIsExecutingAction] = useState(false);
   const [lastRawResponse, setLastRawResponse] = useState<any>(null);
+  const [editingOptionId, setEditingOptionId] = useState<string | null>(null);
+  const [isEditingWelcome, setIsEditingWelcome] = useState(false);
+  const [tempWelcomeText, setTempWelcomeText] = useState(welcomeMessage);
+  const [tempMenuTitleText, setTempMenuTitleText] = useState(menuTitle);
+  const [allBots, setAllBots] = useState<any[]>([]);
+  const [selectedBotId, setSelectedBotId] = useState<string>('');
+  const [isOnline, setIsOnline] = useState(true);
 
   // Sincronizar y cargar perfil activo desde la base de datos real al montar el panel
   useEffect(() => {
     BotApiClient.getProfiles()
       .then((profiles) => {
         if (profiles && profiles.length > 0) {
+          setAllBots(profiles);
           const activeSessionBot = typeof window !== 'undefined' ? sessionStorage.getItem('active_bot_id') : null;
-          const matched = activeSessionBot ? profiles.find((p: any) => (p.botId || p.id) === activeSessionBot) : null;
-          const targetMatched = matched || profiles[0];
-          if (targetMatched) {
-            setBotName(targetMatched.name || 'Asistente Comercial');
-            setBotPhone(targetMatched.botId || targetMatched.phoneNumber || '');
-            if (targetMatched.welcomeMessage) setWelcomeMessage(targetMatched.welcomeMessage);
-            if (targetMatched.invalidOptionMessage) setInvalidOptionMessage(targetMatched.invalidOptionMessage);
+          const matched = activeSessionBot ? profiles.find((p: any) => (p.botId || p.id) === activeSessionBot) : profiles[0];
+          if (matched) {
+            setSelectedBotId(matched.botId || matched.id);
+            setBotName(matched.name || 'Asistente Comercial');
+            setBotPhone(matched.botId || matched.phoneNumber || '');
+            if (matched.welcomeMessage) setWelcomeMessage(matched.welcomeMessage);
+            if (matched.invalidOptionMessage) setInvalidOptionMessage(matched.invalidOptionMessage);
+            if (matched.isActive !== undefined) setIsOnline(matched.isActive);
             if (typeof window !== 'undefined') {
-              sessionStorage.setItem('active_bot_id', targetMatched.botId || targetMatched.id);
+              sessionStorage.setItem('active_bot_id', matched.botId || matched.id);
             }
           }
         }
       })
       .catch((err) => {
-        logger.error({ err }, 'Error cargando perfil en BotManagementPanel');
+        logger.error({ err }, 'Error cargando perfiles en BotManagementPanel');
       });
   }, []);
 
+  const handleSelectBot = (botId: string) => {
+    setSelectedBotId(botId);
+    const matched = allBots.find((p: any) => (p.botId || p.id) === botId);
+    if (matched) {
+      setBotName(matched.name || 'Asistente Comercial');
+      setBotPhone(matched.botId || matched.phoneNumber || '');
+      if (matched.welcomeMessage) setWelcomeMessage(matched.welcomeMessage);
+      if (matched.invalidOptionMessage) setInvalidOptionMessage(matched.invalidOptionMessage);
+      if (matched.isActive !== undefined) setIsOnline(matched.isActive);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('active_bot_id', matched.botId || matched.id);
+      }
+      addToast(`Cambiado al bot: ${matched.name}`, 'success');
+    }
+  };
+
   const handleInteractOption = async (opt: MenuOption) => {
     const userMsg = `${opt.number}. ${opt.label}`;
-    setPreviewChat(prev => [...prev, { sender: 'user', text: userMsg }]);
+    const uniqueId = () => Math.random().toString(36).substring(2, 9) + '-' + Date.now();
+    setPreviewChat(prev => [...prev, { id: uniqueId(), sender: 'user', text: userMsg }]);
 
-    if (opt.actionKey) {
+    if (opt.customResponse !== undefined) {
+      setPreviewChat(prev => [...prev, { id: uniqueId(), sender: 'bot', text: opt.customResponse }]);
+    } else if (opt.actionKey) {
       setIsExecutingAction(true);
       try {
         const activeBotId = typeof window !== 'undefined' ? sessionStorage.getItem('active_bot_id') || undefined : undefined;
@@ -185,22 +200,22 @@ export default function BotManagementPanel() {
         setLastRawResponse({ actionKey: opt.actionKey, label: opt.label, response: data, timestamp: new Date().toISOString() });
         logger.info({ actionKey: opt.actionKey, rawResponse: data }, 'Ejecución de función en simulador y respuesta RAW capturada');
         const botReply = data.success ? data.message : `Error ejecutando función: ${data.message}`;
-        setPreviewChat(prev => [...prev, { sender: 'bot', text: botReply }]);
+        setPreviewChat(prev => [...prev, { id: uniqueId(), sender: 'bot', text: botReply }]);
       } catch (err: any) {
         setLastRawResponse({ actionKey: opt.actionKey, label: opt.label, error: err.message, timestamp: new Date().toISOString() });
         logger.error({ actionKey: opt.actionKey, err }, 'Error ejecutando función en simulador');
-        setPreviewChat(prev => [...prev, { sender: 'bot', text: `Error de conexión al ejecutar la función: ${err.message}` }]);
+        setPreviewChat(prev => [...prev, { id: uniqueId(), sender: 'bot', text: `Error de conexión al ejecutar la función: ${err.message}` }]);
       } finally {
         setIsExecutingAction(false);
       }
     } else {
-      setPreviewChat(prev => [...prev, { sender: 'bot', text: `Has seleccionado: ${opt.label}` }]);
+      setPreviewChat(prev => [...prev, { id: uniqueId(), sender: 'bot', text: `Has seleccionado: ${opt.label}` }]);
     }
   };
 
   const handleAddOption = () => {
     const nextNum = String(options.length + 1);
-    setOptions([...options, { id: Date.now().toString(), number: nextNum, label: 'Nueva Opción' }]);
+    setOptions([...options, { id: Math.random().toString(36).substring(2, 9) + '-' + Date.now(), number: nextNum, label: 'Nueva Opción' }]);
   };
 
   const handleUpdateOption = (id: string, fields: Partial<MenuOption>) => {
@@ -217,7 +232,7 @@ export default function BotManagementPanel() {
     try {
       const createdBot = await BotApiClient.createBotWithMenus({
         name: botName,
-        description: 'Bot creado desde Bot Manager',
+        description: 'Bot gestionado desde Bot Manager',
         welcomeMessage,
         invalidOptionMessage,
         options,
@@ -226,828 +241,416 @@ export default function BotManagementPanel() {
       if (activeId && typeof window !== 'undefined') {
         sessionStorage.setItem('active_bot_id', activeId);
       }
-      setIsCreated(true);
-      logger.info({ botName, botPhone, welcomeMessage, menuTitle, layoutType, optionsCount: options.length, activeId }, 'Nuevo bot creado mediante flujo asistido y sincronizado con base de datos');
+      addToast('¡Cambios guardados exitosamente en la base de datos!', 'success');
+      logger.info({ botName, botPhone, welcomeMessage, menuTitle, optionsCount: options.length, activeId }, 'Bot sincronizado con base de datos');
     } catch (err: any) {
-      logger.error({ err }, 'Error al crear bot en BotManagementPanel');
-      addToast(`Error al crear bot: ${err.message}`, 'error');
+      logger.error({ err }, 'Error al guardar bot en BotManagementPanel');
+      addToast(`Error al guardar bot: ${err.message}`, 'error');
     } finally {
       setIsExecutingAction(false);
     }
   };
 
-  const handleReset = () => {
-    setStep(1);
-    setIsCreated(false);
-    setBotName('Asistente Comercial');
-    setBotPhone('+549' + Math.floor(1000000000 + Math.random() * 9000000000));
-    setWelcomeMessage('¡Hola! Bienvenido a nuestro asistente virtual. ¿En qué podemos ayudarte hoy?');
-    setOptions([
-      { id: '1', number: '1', label: 'Ver Catálogo' },
-      { id: '2', number: '2', label: 'Horarios y Ubicación' },
-      { id: '3', number: '3', label: 'Hablar con Asesor' },
-    ]);
-  };
+  return (
+    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Header Superior con Selector de Bots y Estado Online */}
+      <div style={{
+        background: 'var(--color-surface)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '20px 24px',
+        marginBottom: '24px',
+        border: '1px solid var(--color-border)',
+        boxShadow: 'var(--shadow-card)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '16px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ padding: '12px', borderRadius: 'var(--radius-md)', background: 'var(--color-primary)', color: '#fff', display: 'flex' }}>
+            <SvgIcons.bot />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '700', margin: 0 }}>{botName}</h2>
+              <span style={{
+                background: isOnline ? '#dcfce7' : '#fee2e2',
+                color: isOnline ? '#166534' : '#991b1b',
+                padding: '2px 10px',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '600',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isOnline ? '#22c55e' : '#ef4444' }}></span>
+                {isOnline ? 'Online (Activo)' : 'Offline'}
+              </span>
+            </div>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', margin: '2px 0 0 0' }}>WhatsApp ID: {botPhone}</p>
+          </div>
+        </div>
 
-  if (isCreated) {
-    return (
-      <div style={{ padding: '48px 24px', textAlign: 'center', maxWidth: '700px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '2px', color: 'var(--color-text-muted)' }}>
+              Seleccionar Bot:
+            </label>
+            <select
+              value={selectedBotId}
+              onChange={(e) => handleSelectBot(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-background)',
+                color: 'var(--color-text)',
+                fontSize: '13px',
+                fontWeight: '600',
+                minWidth: '220px',
+              }}
+            >
+              {allBots.map((b: any) => (
+                <option key={b.botId || b.id} value={b.botId || b.id}>
+                  🤖 {b.name} ({b.botId || b.phoneNumber})
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const name = prompt('Nombre del nuevo bot:', 'Mi Nuevo Bot');
+              if (name) {
+                setBotName(name);
+                setBotPhone('+549' + Math.floor(1000000000 + Math.random() * 9000000000));
+                addToast('Nuevo bot creado en el editor.', 'success');
+              }
+            }}
+            style={{
+              background: 'var(--color-primary)',
+              color: '#fff',
+              border: 'none',
+              padding: '10px 16px',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '13px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '16px',
+            }}
+          >
+            <SvgIcons.plus /> Nuevo Bot
+          </button>
+        </div>
+      </div>
+
+      {/* Dashboard Unificado: Simulador en Vivo como Único Editor Exclusivo */}
+      <form onSubmit={handleFinish} style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         <div style={{
           background: 'var(--color-surface)',
           borderRadius: 'var(--radius-lg)',
-          padding: '48px 32px',
+          padding: '24px',
+          border: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-card)',
-          border: '1px solid var(--color-border)',
         }}>
-          <div style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '50%',
-            background: 'var(--color-success-bg)',
-            color: 'var(--color-success)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 20px auto',
-          }}>
-            <SvgIcons.check />
-          </div>
-          <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '16px', letterSpacing: '-0.02em' }}>Bot Creado Exitosamente</h2>
-          <div style={{
-            textAlign: 'left',
-            margin: '0 auto 28px auto',
-            maxWidth: '480px',
-            background: 'var(--color-background)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: '20px',
-            boxShadow: 'var(--shadow-soft)',
-          }}>
-            <p style={{ fontWeight: '600', marginBottom: '12px', textAlign: 'center', fontSize: '15px', color: 'var(--color-text)' }}>
-              Beneficios al iniciar sesión con WhatsApp:
-            </p>
-            <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px', color: 'var(--color-text-muted)' }}>
-              <li>Se activa el panel chat para visualizar los chats de los usuarios que interactúen con el bot.</li>
-              <li>Bot publicado para que cualquiera interactúe vía WhatsApp.</li>
-              <li>1 bot activo públicamente.</li>
-              <li>Acceso a soporte técnico.</li>
-            </ul>
-          </div>
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => setIsAuthModalOpen(true)}
-              style={{
-                background: '#25D366',
-                color: '#fff',
-                border: 'none',
-                padding: '12px 28px',
-                borderRadius: 'var(--radius-md)',
-                fontWeight: '600',
-                cursor: 'pointer',
-                boxShadow: 'var(--shadow-soft)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-              }}
-            >
-              Iniciar sesión
-            </button>
-            <button
-              type="button"
-              onClick={handleReset}
-              style={{
-                background: 'var(--color-primary)',
-                color: '#fff',
-                border: 'none',
-                padding: '12px 28px',
-                borderRadius: 'var(--radius-md)',
-                fontWeight: '600',
-                cursor: 'pointer',
-                boxShadow: 'var(--shadow-soft)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-              }}
-            >
-              <SvgIcons.refresh /> Crear Otro Bot
-            </button>
-          </div>
-
-          {/* Modal Personalizado de Inicio de Sesión con Selector de País */}
-          {isAuthModalOpen && (
-            <div style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 10000,
-              padding: '20px',
-            }}>
-              <div style={{
-                background: 'var(--color-surface)',
-                borderRadius: 'var(--radius-lg)',
-                padding: '32px',
-                width: '100%',
-                maxWidth: '420px',
-                border: '1px solid var(--color-border)',
-                boxShadow: 'var(--shadow-card)',
-                textAlign: 'left',
-              }}>
-                <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: 'var(--color-text)' }}>
-                  Iniciar sesión con WhatsApp
-                </h3>
-                <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>
-                  Selecciona tu país e ingresa tu número real para verificar tu sesión y activar el bot.
-                </p>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  const fullPhone = `${authCountryCode}${authLocalPhone.replace(/^0+/, '').replace(/\D/g, '')}`;
-                  if (!authLocalPhone.trim()) {
-                    addToast('Por favor, ingresa un número de teléfono válido.', 'warn');
-                    return;
-                  }
-                  setAuthLoading(true);
-                  try {
-                    const data = await apiFetch('/api/auth/initiate-whatsapp', {
-                      method: 'POST',
-                      body: JSON.stringify({ phoneNumber: fullPhone.trim() }),
-                    });
-                    if (data.success && data.data?.whatsappLink) {
-                      localStorage.setItem('bot_user_phone', fullPhone.trim());
-                      localStorage.removeItem('is_anonymous');
-                      if (typeof window !== 'undefined') {
-                        sessionStorage.setItem('active_bot_id', botPhone);
-                      }
-                      window.open(data.data.whatsappLink, '_blank');
-                      addToast('¡Enlace de inicio de sesión generado! Envía el mensaje por WhatsApp.', 'success');
-                      setIsAuthModalOpen(false);
-                    } else {
-                      addToast('Error al generar enlace de WhatsApp.', 'error');
-                    }
-                  } catch (err: any) {
-                    addToast(`Error: ${err.message}`, 'error');
-                  } finally {
-                    setAuthLoading(false);
-                  }
-                }}>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--color-text)' }}>
-                      País
-                    </label>
-                    <select
-                      value={authCountryCode}
-                      onChange={(e) => setAuthCountryCode(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                        backgroundColor: 'var(--color-background)',
-                        color: 'var(--color-text)',
-                        fontSize: '14px',
-                      }}
-                    >
-                      {COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.name} ({c.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ marginBottom: '24px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--color-text)' }}>
-                      Número de teléfono (sin 0 ni 15)
-                    </label>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span style={{ padding: '10px 12px', background: 'var(--color-background)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', fontSize: '14px', fontWeight: '600', color: 'var(--color-text)' }}>
-                        {authCountryCode}
-                      </span>
-                      <input
-                        type="tel"
-                        placeholder="Ej: 91123456789"
-                        value={authLocalPhone}
-                        onChange={(e) => setAuthLocalPhone(e.target.value)}
-                        autoFocus
-                        style={{
-                          flex: 1,
-                          padding: '10px 12px',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--color-border)',
-                          backgroundColor: 'var(--color-background)',
-                          color: 'var(--color-text)',
-                          fontSize: '14px',
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button
-                      type="button"
-                      onClick={() => setIsAuthModalOpen(false)}
-                      style={{
-                        padding: '10px 18px',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                        background: 'transparent',
-                        color: 'var(--color-text)',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        fontWeight: '500',
-                      }}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={authLoading}
-                      style={{
-                        padding: '10px 20px',
-                        borderRadius: 'var(--radius-md)',
-                        border: 'none',
-                        background: '#25D366',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        opacity: authLoading ? 0.7 : 1,
-                      }}
-                    >
-                      {authLoading ? 'Generando...' : 'Verificar y Enviar'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: '32px 24px', maxWidth: '1000px', margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div style={{ padding: '10px', borderRadius: 'var(--radius-md)', background: 'var(--color-primary)', color: '#fff', display: 'flex' }}>
-          <SvgIcons.bot />
-        </div>
-        <div>
-          <h2 style={{ fontSize: '22px', fontWeight: '700', margin: 0 }}>Gestión y Creación de Bots</h2>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0 0' }}>Configura perfiles, menús y automatizaciones en tiempo real.</p>
-        </div>
-      </div>
-
-      {/* Stepper Moderno */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '32px' }}>
-        <div style={{
-          flex: 1,
-          padding: '14px 20px',
-          borderRadius: 'var(--radius-md)',
-          background: step === 1 ? 'var(--color-primary)' : 'var(--color-surface)',
-          color: step === 1 ? '#fff' : 'var(--color-text)',
-          border: '1px solid var(--color-border)',
-          fontWeight: '600',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          boxShadow: 'var(--shadow-soft)',
-        }}>
-          <span style={{
-            width: '26px',
-            height: '26px',
-            borderRadius: '50%',
-            background: step === 1 ? 'rgba(255,255,255,0.25)' : 'var(--color-border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '13px',
-          }}>1</span>
-          Paso 1: Bienvenida
-        </div>
-        <div style={{
-          flex: 1,
-          padding: '14px 20px',
-          borderRadius: 'var(--radius-md)',
-          background: step === 2 ? 'var(--color-primary)' : 'var(--color-surface)',
-          color: step === 2 ? '#fff' : 'var(--color-text)',
-          border: '1px solid var(--color-border)',
-          fontWeight: '600',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          boxShadow: 'var(--shadow-soft)',
-        }}>
-          <span style={{
-            width: '26px',
-            height: '26px',
-            borderRadius: '50%',
-            background: step === 2 ? 'rgba(255,255,255,0.25)' : 'var(--color-border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '13px',
-          }}>2</span>
-          Paso 2: Menús y Chat
-        </div>
-      </div>
-
-      {step === 1 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div style={{
-            background: 'var(--color-surface)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '28px',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-card)',
-          }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px', margin: '0 0 20px 0' }}>Información General</h3>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Nombre del Bot</label>
-                <input
-                  type="text"
-                  value={botName}
-                  onChange={(e) => setBotName(e.target.value)}
-                  placeholder="Ej: Asistente Comercial"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    background: 'var(--color-background)',
-                    color: 'var(--color-text)',
-                    fontSize: '14px',
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Teléfono / Bot ID</label>
-                <input
-                  type="text"
-                  value={botPhone}
-                  onChange={(e) => setBotPhone(e.target.value)}
-                  placeholder="Ej: 5491155556666"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    background: 'var(--color-background)',
-                    color: 'var(--color-text)',
-                    fontSize: '14px',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Mensaje de Bienvenida</label>
-              <textarea
-                value={welcomeMessage}
-                onChange={(e) => setWelcomeMessage(e.target.value)}
-                rows={3}
-                placeholder="Escribe el mensaje inicial..."
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  background: 'var(--color-background)',
-                  color: 'var(--color-text)',
-                  fontSize: '14px',
-                }}
-              />
-            </div>
-
-            <div style={{ marginTop: '16px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Mensaje de Opción Incorrecta / Error (Fallback)</label>
-              <textarea
-                value={invalidOptionMessage}
-                onChange={(e) => setInvalidOptionMessage(e.target.value)}
-                rows={2}
-                placeholder="Mensaje cuando el usuario envía una opción inválida..."
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  background: 'var(--color-background)',
-                  color: 'var(--color-text)',
-                  fontSize: '14px',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Vista Previa */}
-          <div style={{
-            background: 'var(--color-surface)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '28px',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-card)',
-          }}>
-            <h4 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '16px', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 16px 0' }}>
-              <SvgIcons.smartphone /> Vista Previa del Saludo
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h4 style={{ fontSize: '16px', fontWeight: '700', margin: 0, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <SvgIcons.smartphone /> Simulador y Editor Visual en Vivo
             </h4>
-            <div style={{
-              background: '#075e54',
-              borderRadius: 'var(--radius-lg)',
-              padding: '20px',
-              maxWidth: '380px',
-            }}>
-              <div style={{
-                background: '#ffffff',
-                padding: '14px 16px',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-soft)',
-                color: '#111b21',
-                fontSize: '14px',
-                lineHeight: '1.5',
-              }}>
-                <div style={{ fontWeight: '600', color: '#00a884', fontSize: '12px', marginBottom: '4px' }}>{botName}</div>
-                <div>{welcomeMessage || 'Escribe un mensaje de bienvenida...'}</div>
-                <div style={{ fontSize: '10px', color: '#667781', textAlign: 'right', marginTop: '6px' }}>12:00 PM</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Botón Siguiente */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
-            {isExecutingAction && (
-              <span style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <SvgIcons.spinner /> Guardando perfil en base de datos real...
-              </span>
-            )}
             <button
               type="button"
-              disabled={isExecutingAction}
-              onClick={async () => {
-                setIsExecutingAction(true);
-                try {
-                  const createdBot = await BotApiClient.createBotWithMenus({
-                    name: botName,
-                    description: 'Bot creado desde Bot Manager',
-                    welcomeMessage,
-                    options,
-                  });
-                  const activeId = createdBot?.botId || createdBot?.id;
-                  if (activeId && typeof window !== 'undefined') {
-                    sessionStorage.setItem('active_bot_id', activeId);
-                  }
-                } catch (err: any) {
-                  logger.warn({ err }, 'Aviso: No se pudo pre-crear el bot, continuando al paso 2');
-                } finally {
-                  setIsExecutingAction(false);
-                  setStep(2);
-                }
-              }}
-              style={{
-                background: 'var(--color-primary)',
-                color: '#fff',
-                border: 'none',
-                padding: '12px 24px',
-                borderRadius: 'var(--radius-md)',
-                fontWeight: '600',
-                cursor: isExecutingAction ? 'wait' : 'pointer',
-                boxShadow: 'var(--shadow-soft)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-              }}
+              onClick={() => setPreviewChat([])}
+              style={{ background: 'transparent', border: 'none', fontSize: '12px', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
             >
-              Siguiente: Configurar Menús <SvgIcons.arrowRight />
+              <SvgIcons.refresh /> Limpiar Chat
             </button>
           </div>
-        </div>
-      )}
 
-      {step === 2 && (
-        <form onSubmit={handleFinish} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <div style={{
-            background: 'var(--color-surface)',
+            background: '#075e54',
             borderRadius: 'var(--radius-lg)',
-            padding: '28px',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-card)',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+            maxHeight: '650px',
+            overflowY: 'auto',
           }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px', margin: '0 0 20px 0' }}>Estructura de Menú y Funciones</h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Título del Menú</label>
-                <input
-                  type="text"
-                  value={menuTitle}
-                  onChange={(e) => setMenuTitle(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    background: 'var(--color-background)',
-                    color: 'var(--color-text)',
-                    fontSize: '14px',
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: 'var(--color-text-muted)' }}>Diseño de Opciones</label>
-                <select
-                  value={layoutType}
-                  onChange={(e: any) => setLayoutType(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    background: 'var(--color-background)',
-                    color: 'var(--color-text)',
-                    fontSize: '14px',
-                  }}
-                >
-                  <option value="vertical">Vertical (Lista en Columna)</option>
-                  <option value="horizontal">Horizontal (Fila)</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--color-text-muted)' }}>Opciones y Automatizaciones</label>
+            {/* Mensaje de Bienvenida estilo WhatsApp con Edición In-Place */}
+            <div style={{
+              alignSelf: 'flex-start',
+              background: '#ffffff',
+              padding: '14px 18px',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: 'var(--shadow-soft)',
+              color: '#111b21',
+              fontSize: '14px',
+              lineHeight: '1.4',
+              width: '100%',
+              maxWidth: '100%',
+              position: 'relative',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontWeight: '600', color: '#00a884', fontSize: '12px' }}>{botName}</span>
                 <button
                   type="button"
-                  onClick={handleAddOption}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--color-primary)',
-                    color: 'var(--color-primary)',
-                    padding: '6px 14px',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
+                  title="Editar mensaje y menú en línea"
+                  onClick={() => setIsEditingWelcome(!isEditingWelcome)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', color: '#555' }}
                 >
-                  <SvgIcons.plus /> Agregar Opción
+                  <SvgIcons.edit />
                 </button>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {options.map((opt) => (
-                  <div key={opt.id} style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    padding: '16px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-background)',
-                    border: '1px solid var(--color-border)',
-                  }}>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                      <span style={{
-                        background: 'var(--color-surface)',
-                        border: '1px solid var(--color-border)',
-                        padding: '8px 14px',
-                        borderRadius: 'var(--radius-sm)',
-                        fontWeight: '700',
-                        fontSize: '13px',
-                        textAlign: 'center',
-                        minWidth: '40px',
-                      }}>
-                        {opt.number}
-                      </span>
-                      <input
-                        type="text"
-                        value={opt.label}
-                        onChange={(e) => handleUpdateOption(opt.id, { label: e.target.value })}
-                        placeholder="Texto de la opción"
-                        style={{
-                          flex: 1,
-                          padding: '9px 14px',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--color-border)',
-                          background: 'var(--color-surface)',
-                          color: 'var(--color-text)',
-                          fontSize: '14px',
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteOption(opt.id)}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--color-error)',
-                          cursor: 'pointer',
-                          padding: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <SvgIcons.trash />
-                      </button>
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--color-text-muted)' }}>
-                        Función Vinculada Automática:
-                      </label>
-                      <select
-                        value={opt.actionKey || ''}
-                        onChange={(e) => handleUpdateOption(opt.id, { actionKey: e.target.value })}
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          fontSize: '13px',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--color-border)',
-                          background: 'var(--color-surface)',
-                          color: 'var(--color-text)',
-                        }}
-                      >
-                        {AVAILABLE_FUNCTIONS.map((fn) => (
-                          <option key={fn.key} value={fn.key}>
-                            {fn.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+              {!isEditingWelcome ? (
+                <div>
+                  <div style={{ marginBottom: '10px', whiteSpace: 'pre-line' }}>{welcomeMessage}</div>
+                  <div style={{ fontWeight: '600', marginBottom: '10px', color: '#2563eb' }}>{menuTitle}</div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {options.map((opt) => (
+                      <div key={opt.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button
+                            type="button"
+                            disabled={isExecutingAction}
+                            onClick={() => handleInteractOption(opt)}
+                            style={{
+                              flex: 1,
+                              background: '#f0f2f5',
+                              border: '1px solid #d1d7db',
+                              padding: '10px 16px',
+                              borderRadius: '20px',
+                              fontSize: '13px',
+                              color: '#005c4b',
+                              fontWeight: '600',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: isExecutingAction ? 'wait' : 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <span style={{ fontWeight: '700' }}>{opt.number}.</span> {opt.label}
+                          </button>
+                          <button
+                            type="button"
+                            title="Editar opción"
+                            onClick={() => setEditingOptionId(editingOptionId === opt.id ? null : opt.id)}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px solid #d1d7db',
+                              borderRadius: '50%',
+                              width: '28px',
+                              height: '28px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              color: '#005c4b',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <SvgIcons.edit />
+                          </button>
+                        </div>
+
+                        {editingOptionId === opt.id && (
+                          <div style={{
+                            background: '#f8fafc',
+                            border: '1px solid #00a884',
+                            borderRadius: '8px',
+                            padding: '10px',
+                            fontSize: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            marginTop: '2px',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold', color: '#00a884' }}>
+                              <span>✏️ Editar Opción {opt.number}</span>
+                              <button type="button" onClick={() => setEditingOptionId(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#667' }}>✕</button>
+                            </div>
+                            <input
+                              type="text"
+                              value={opt.label}
+                              onChange={(e) => handleUpdateOption(opt.id, { label: e.target.value })}
+                              placeholder="Título de la opción"
+                              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', background: '#fff', color: '#111' }}
+                            />
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOption(opt.id, { customResponse: undefined, actionKey: opt.actionKey || 'stock.check' })}
+                                style={{ background: opt.customResponse === undefined ? '#00a884' : '#e2e8f0', color: opt.customResponse === undefined ? '#fff' : '#333', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}
+                              >
+                                ⚡ Función
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOption(opt.id, { customResponse: opt.customResponse || 'Respuesta...', actionKey: undefined })}
+                                style={{ background: opt.customResponse !== undefined ? '#00a884' : '#e2e8f0', color: opt.customResponse !== undefined ? '#fff' : '#333', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}
+                              >
+                                💬 Texto Libre
+                              </button>
+                            </div>
+                            {opt.customResponse !== undefined ? (
+                              <textarea
+                                value={opt.customResponse}
+                                onChange={(e) => handleUpdateOption(opt.id, { customResponse: e.target.value })}
+                                rows={2}
+                                placeholder="Respuesta de texto libre..."
+                                style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff', color: '#111' }}
+                              />
+                            ) : (
+                              <select
+                                value={opt.actionKey || ''}
+                                onChange={(e) => handleUpdateOption(opt.id, { actionKey: e.target.value })}
+                                style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11px', background: '#fff', color: '#111' }}
+                              >
+                                {AVAILABLE_FUNCTIONS.map((fn) => (
+                                  <option key={fn.key} value={fn.key}>{fn.label}</option>
+                                ))}
+                              </select>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                              <button type="button" onClick={() => handleDeleteOption(opt.id)} style={{ background: '#fee2e2', color: '#991b1b', border: 'none', padding: '3px 6px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' }}>Eliminar</button>
+                              <button type="button" onClick={() => setEditingOptionId(null)} style={{ background: '#00a884', color: '#fff', border: 'none', padding: '3px 10px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', fontWeight: 'bold' }}>Listo</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
 
-          {/* Simulador Interactivo */}
-          <div style={{
-            background: 'var(--color-surface)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '28px',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-card)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h4 style={{ fontSize: '15px', fontWeight: '600', margin: 0, color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <SvgIcons.smartphone /> Simulador en Vivo ({layoutType})
-              </h4>
-              <button
-                type="button"
-                onClick={() => setPreviewChat([])}
-                style={{ background: 'transparent', border: 'none', fontSize: '12px', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-              >
-                <SvgIcons.refresh /> Limpiar Chat
-              </button>
-            </div>
-
-            <div style={{
-              background: '#075e54',
-              borderRadius: 'var(--radius-lg)',
-              padding: '20px',
-              maxWidth: '550px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-              maxHeight: '420px',
-              overflowY: 'auto',
-            }}>
-              {/* Mensaje de Bienvenida */}
-              <div style={{
-                background: '#ffffff',
-                padding: '14px 18px',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-soft)',
-                color: '#111b21',
-                fontSize: '14px',
-                lineHeight: '1.4',
-              }}>
-                <div style={{ fontWeight: '600', color: '#00a884', fontSize: '12px', marginBottom: '4px' }}>{botName}</div>
-                <div style={{ marginBottom: '10px' }}>{welcomeMessage}</div>
-                <div style={{ fontWeight: '600', marginBottom: '10px', color: '#2563eb' }}>{menuTitle}</div>
-                
-                <div style={{
-                  display: 'flex',
-                  flexDirection: layoutType === 'horizontal' ? 'row' : 'column',
-                  flexWrap: 'wrap',
-                  gap: '8px',
-                }}>
-                  {options.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      disabled={isExecutingAction}
-                      onClick={() => handleInteractOption(opt)}
-                      style={{
-                        background: '#f0f2f5',
-                        border: '1px solid #d1d7db',
-                        padding: '10px 16px',
-                        borderRadius: '20px',
-                        fontSize: '13px',
-                        color: '#005c4b',
-                        fontWeight: '600',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        cursor: isExecutingAction ? 'wait' : 'pointer',
-                        textAlign: 'left',
-                        ...(layoutType === 'horizontal' ? { flex: '0 0 auto' } : { width: '100%' }),
-                      }}
-                    >
-                      <span style={{ fontWeight: '700' }}>{opt.number}.</span> {opt.label} {opt.actionKey ? <SvgIcons.lightning /> : ''}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={handleAddOption}
+                    style={{ background: '#f0f2f5', border: '1px dashed #00a884', color: '#00a884', padding: '6px 12px', borderRadius: '16px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', marginTop: '10px', width: '100%', textAlign: 'center' }}
+                  >
+                    + Agregar nueva opción de menú
+                  </button>
                 </div>
-                <div style={{ fontSize: '10px', color: '#667781', textAlign: 'right', marginTop: '8px' }}>12:01 PM</div>
-              </div>
-
-              {/* Historial de Chat */}
-              {previewChat.map((msg, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-                    background: msg.sender === 'user' ? '#d9fdd3' : '#ffffff',
-                    padding: '10px 16px',
-                    borderRadius: 'var(--radius-md)',
-                    boxShadow: 'var(--shadow-soft)',
-                    color: '#111b21',
-                    fontSize: '14px',
-                    lineHeight: '1.4',
-                    maxWidth: '85%',
-                    whiteSpace: 'pre-line',
-                  }}
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#00a884', display: 'block', marginBottom: '4px' }}>Editar Mensaje de Bienvenida:</label>
+                  <textarea
+                    value={welcomeMessage}
+                    onChange={(e) => setWelcomeMessage(e.target.value)}
+                    rows={3}
+                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #00a884', fontSize: '13px', background: '#fff', color: '#111' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#00a884', display: 'block', marginBottom: '4px' }}>Editar Título del Menú:</label>
+                  <input
+                    type="text"
+                    value={menuTitle}
+                    onChange={(e) => setMenuTitle(e.target.value)}
+                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #00a884', fontSize: '13px', background: '#fff', color: '#111' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingWelcome(false)}
+                  style={{ background: '#00a884', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
                 >
-                  {msg.text}
-                </div>
-              ))}
+                  ✓ Listo / Guardar
+                </button>
+              </div>
+            )}
 
-              {isExecutingAction && (
-                <div style={{ alignSelf: 'flex-start', background: '#ffffff', padding: '10px 16px', borderRadius: 'var(--radius-md)', fontSize: '13px', color: '#667781', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <SvgIcons.spinner /> Ejecutando función en tiempo real...
-                </div>
-              )}
-            </div>
+            <div style={{ fontSize: '10px', color: '#667781', textAlign: 'right', marginTop: '4px' }}>12:01 PM</div>
           </div>
 
-          {/* Botones finales */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text)',
-                padding: '12px 24px',
-                borderRadius: 'var(--radius-md)',
-                fontWeight: '600',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-              }}
-            >
-              <SvgIcons.arrowLeft /> Anterior
-            </button>
-            <button
-              type="submit"
-              disabled={isExecutingAction}
-              style={{
-                background: 'var(--color-primary)',
-                color: '#fff',
-                border: 'none',
-                padding: '12px 28px',
-                borderRadius: 'var(--radius-md)',
-                fontWeight: '600',
-                cursor: isExecutingAction ? 'wait' : 'pointer',
-                boxShadow: 'var(--shadow-soft)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-              }}
-            >
-              {isExecutingAction ? <SvgIcons.spinner /> : <SvgIcons.check />} Guardar Bot en BD Real
-            </button>
+            {/* Historial de Chat */}
+            {previewChat.map((msg) => (
+              <div
+                key={msg.id}
+                style={{
+                  alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                  background: msg.sender === 'user' ? '#d9fdd3' : '#ffffff',
+                  padding: '10px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-soft)',
+                  color: '#111b21',
+                  fontSize: '14px',
+                  lineHeight: '1.4',
+                  maxWidth: '85%',
+                  whiteSpace: 'pre-line',
+                  position: 'relative',
+                }}
+              >
+                {msg.sender === 'bot' && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginBottom: '4px' }}>
+                    <button
+                      type="button"
+                      title="Editar respuesta"
+                      onClick={() => {
+                        const updated = prompt('✏️ Editar respuesta:', msg.text);
+                        if (updated !== null) {
+                          setPreviewChat(prev => prev.map(m => m.id === msg.id ? { ...m, text: updated } : m));
+                          addToast('Actualizado.', 'success');
+                        }
+                      }}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', color: '#555' }}
+                    >
+                      <SvgIcons.edit />
+                    </button>
+                    <button
+                      type="button"
+                      title="Eliminar"
+                      onClick={() => {
+                        setPreviewChat(prev => prev.filter(m => m.id !== msg.id));
+                      }}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', color: '#e11d48' }}
+                    >
+                      <SvgIcons.trash />
+                    </button>
+                  </div>
+                )}
+                {msg.text}
+              </div>
+            ))}
+
+            {isExecutingAction && (
+              <div style={{ alignSelf: 'flex-start', background: '#ffffff', padding: '10px 16px', borderRadius: 'var(--radius-md)', fontSize: '13px', color: '#667781', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <SvgIcons.spinner /> Ejecutando...
+              </div>
+            )}
           </div>
-        </form>
-      )}
+
+          <button
+            type="submit"
+            disabled={isExecutingAction}
+            style={{
+              width: '100%',
+              background: 'var(--color-primary)',
+              color: '#fff',
+              border: 'none',
+              padding: '14px 20px',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: '700',
+              cursor: isExecutingAction ? 'wait' : 'pointer',
+              boxShadow: 'var(--shadow-soft)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              fontSize: '15px',
+              marginTop: '16px',
+            }}
+          >
+            {isExecutingAction ? <SvgIcons.spinner /> : <SvgIcons.check />} Guardar Cambios del Bot en la Base de Datos
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
