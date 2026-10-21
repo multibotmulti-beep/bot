@@ -452,18 +452,7 @@ export class MasterBotEngine extends BaseBotEngine {
         // Mostrar menú raíz por defecto desde BD
         const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
         if (rootFlow) {
-          let menuText = rootFlow.responseMessage + '\n\n';
-          try {
-            const parsed = JSON.parse(rootFlow.content);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((item: any, idx: number) => {
-                menuText += `${idx + 1}. ${item.label || item.option}\n`;
-              });
-            }
-          } catch {
-            menuText += rootFlow.content;
-          }
-          matchedResponse = menuText.trim() + '\n\n0. ↩️ Volver';
+          matchedResponse = rootFlow.responseMessage || '¡Hola! Bienvenido al asistente virtual.';
         } else {
           matchedResponse = 'Bienvenido al Bot Admin Central. Envía "menu" para ver las opciones.';
         }
@@ -583,18 +572,7 @@ export class UserBotEngine extends BaseBotEngine {
         const invalidMsg = profile.invalidOptionMessage || "⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.";
         const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
         if (rootFlow) {
-          let menuText = invalidMsg + '\n\n' + rootFlow.responseMessage + '\n\n';
-          try {
-            const parsed = JSON.parse(rootFlow.content);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((item: any, idx: number) => {
-                menuText += `${idx + 1}. ${item.label || item.option}\n`;
-              });
-            }
-          } catch {
-            menuText += rootFlow.content;
-          }
-          matchedResponse = menuText.trim() + '\n\n0. ↩️ Volver';
+          matchedResponse = `${invalidMsg}\n\n${rootFlow.responseMessage}`;
         } else {
           matchedResponse = `${invalidMsg}\n\nEnvía "0" para regresar al menú principal.`;
         }

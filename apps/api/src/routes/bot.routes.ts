@@ -51,6 +51,13 @@ export async function botRoutes(server: FastifyInstance) {
     return { success: true, data: profiles };
   });
 
+  server.get('/bot/profiles/by-phone/:phoneNumber', {
+    schema: { description: 'Obtiene el perfil del bot y su estado de activación por número de teléfono', tags: ['Bots & AI'] },
+  }, async (request) => {
+    const { phoneNumber } = request.params as { phoneNumber: string };
+    return await BotProfileService.getProfileByPhoneNumber(phoneNumber);
+  });
+
   server.post('/bot/profiles', {
     schema: { description: 'Crea un nuevo perfil de bot', tags: ['Bots & AI'] },
   }, async (request, reply) => {
@@ -281,7 +288,7 @@ export async function botRoutes(server: FastifyInstance) {
   });
 
   server.post('/bot/profiles/anonymous', {
-    schema: { description: 'Gestiona la sesión anónima por cookie', tags: ['Bots & AI'] },
+    schema: { description: 'Gestiona la sesión anónima por cookie y crea automáticamente el bot base, menú y bienvenida si no existe', tags: ['Bots & AI'] },
   }, async (request, reply) => {
     const { prisma } = await import('@repo/database');
     const cookieHeader = request.headers['cookie'] || '';
@@ -294,14 +301,45 @@ export async function botRoutes(server: FastifyInstance) {
         const existingProfile = await BotProfileService.getProfileByBotId(sessionRecord.activeBotId);
         if (existingProfile) {
           reply.header('Set-Cookie', `guest_session=${sessionToken}; Path=/; HttpOnly; Max-Age=2592000; SameSite=Lax`);
-          return { success: true, profile: existingProfile };
+          return { success: true, profile: existingProfile, sessionToken, phoneNumber: existingProfile.phoneNumber };
         }
       }
     }
 
     sessionToken = 'guest_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const phoneNumber = '+54911' + Math.floor(10000000 + Math.random() * 90000000);
+    const botId = `bot_anon_${Date.now()}`;
+
+    // Crear automáticamente el perfil de bot anónimo con bienvenida, menú y manejo de errores en la base de datos
+    const profile = await BotProfileService.createProfile({
+      botId,
+      phoneNumber,
+      name: 'Asistente Virtual Automático',
+      description: 'Bot generado automáticamente para sesión anónima',
+      type: 'custom',
+      isPublic: true,
+      isActive: true,
+      welcomeMessage: '¡Hola! Bienvenido a nuestro asistente virtual. Elige una opción:',
+      invalidOptionMessage: '⚠️ Opción incorrecta. Por favor, selecciona una opción válida del menú o escribe "0" para volver.',
+      menuOptions: [
+        { label: 'Ver Catálogo y Stock', option: '1', actionKey: 'stock.check' },
+        { label: 'Hablar con Asesor Humano', option: '2', actionKey: 'support.human' },
+        { label: 'Horarios y Ubicación', option: '3', actionKey: 'faq.query' }
+      ]
+    });
+
+    await prisma.botSession.upsert({
+      where: { senderPhone: phoneNumber },
+      update: { loginToken: sessionToken, activeBotId: profile.botId, verified: true },
+      create: { senderPhone: phoneNumber, loginToken: sessionToken, activeBotId: profile.botId, verified: true },
+    });
+
+    // Generar automáticamente el mensaje inicial de bienvenida y menú en la base de datos de chat
+    const { ChatService } = await import('@repo/domain');
+    await ChatService.getMessagesByPhone(phoneNumber, profile.botId);
+
     reply.header('Set-Cookie', `guest_session=${sessionToken}; Path=/; HttpOnly; Max-Age=2592000; SameSite=Lax`);
-    return { success: true, profile: null, sessionToken };
+    return { success: true, profile, sessionToken, phoneNumber };
   });
 
   server.post('/bot/ai-chat', {

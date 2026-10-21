@@ -20,7 +20,8 @@ export async function chatRoutes(server: FastifyInstance) {
     },
   }, async (request) => {
     const { senderPhone } = request.params as { senderPhone: string };
-    const messages = await ChatService.getMessagesByPhone(senderPhone);
+    const { botId } = request.query as { botId?: string };
+    const messages = await ChatService.getMessagesByPhone(senderPhone, botId);
     return { success: true, data: messages };
   });
 

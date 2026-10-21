@@ -28,7 +28,7 @@ const COUNTRIES = [
 
 export default function Page() {
   const { userPhone, isLoggedIn, isLoaded, login, logout } = useUserSession();
-  const [currentView, setCurrentView] = useState<View>('test');
+  const [currentView, setCurrentView] = useState<View>('home');
   const [countryCode, setCountryCode] = useState('+54');
   const [localPhone, setLocalPhone] = useState('');
   const authInputPhone = `${countryCode}${localPhone.replace(/^0+/, '').replace(/\D/g, '')}`;
@@ -239,7 +239,7 @@ export default function Page() {
     );
   }
 
-  const ActivePanel = panelRegistry[currentView] || panelRegistry['test'];
+  const ActivePanel = panelRegistry[currentView] || panelRegistry['home'];
 
   return (
     <main

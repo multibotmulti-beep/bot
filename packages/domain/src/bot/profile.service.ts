@@ -119,7 +119,28 @@ export class BotProfileService {
     logger.info({ phoneNumber }, 'Obteniendo perfiles de bots');
     const isAdmin = AuthService.isAdmin(phoneNumber);
     if (!isAdmin && phoneNumber) {
-      return await this.getBotsForUser(phoneNumber);
+      const userBots = await this.getBotsForUser(phoneNumber);
+      const publicBots = await prisma.botProfile.findMany({
+        where: {
+          OR: [
+            { isPublic: true },
+            { isActive: true }
+          ]
+        },
+        include: {
+          rules: true,
+          flows: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const map = new Map<string, any>();
+      for (const b of [...userBots, ...publicBots]) {
+        if (b.id !== 'admin' && b.botId !== 'admin' && b.type !== 'system') {
+          map.set(b.id || b.botId, b);
+        }
+      }
+      return Array.from(map.values());
     }
     return await prisma.botProfile.findMany({
       include: {
@@ -139,6 +160,45 @@ export class BotProfileService {
         flows: true,
       },
     });
+  }
+
+  static async getProfileByPhoneNumber(phoneNumber: string) {
+    const cleanPhone = phoneNumber ? phoneNumber.replace(/[^0-9]/g, '') : '';
+    const suffix = cleanPhone.slice(-8);
+    logger.info({ phoneNumber, cleanPhone }, 'Obteniendo perfil de bot por número de teléfono con estado real');
+
+    const session = await prisma.botSession.findFirst({
+      where: {
+        OR: [
+          { senderPhone: phoneNumber },
+          { senderPhone: cleanPhone },
+          ...(suffix.length >= 8 ? [{ senderPhone: { endsWith: suffix } }] : [])
+        ]
+      }
+    });
+
+    const profile = await prisma.botProfile.findFirst({
+      where: {
+        OR: [
+          { phoneNumber },
+          { phoneNumber: cleanPhone },
+          ...(suffix.length >= 8 ? [{ phoneNumber: { endsWith: suffix } }] : []),
+          ...(session?.activeBotId ? [{ botId: session.activeBotId }] : [])
+        ]
+      },
+      include: {
+        rules: true,
+        flows: true,
+      }
+    });
+
+    return {
+      success: !!profile,
+      profile: profile || null,
+      session: session || null,
+      isActive: profile ? profile.isActive : false,
+      activeBotId: session?.activeBotId || profile?.botId || null
+    };
   }
 
   static async generateOtp(phoneNumber: string) {
@@ -175,69 +235,87 @@ export class BotProfileService {
     const validated = CreateBotProfileSchema.parse(data);
     logger.info({ phoneNumber: validated.phoneNumber, name: validated.name }, 'Creando o actualizando perfil de bot asociado a usuario');
 
-    const botId = validated.phoneNumber.trim().replace(/[^0-9+]/g, '');
+    const botId = validated.botId || validated.phoneNumber.trim().replace(/[^0-9+]/g, '');
     const cleanPhone = validated.phoneNumber.trim();
 
-    // Buscar o crear usuario asociado a este número de teléfono
-    const user = await prisma.user.upsert({
-      where: { phoneNumber: cleanPhone },
-      update: {},
-      create: { phoneNumber: cleanPhone, name: `Usuario ${cleanPhone}` },
-    });
+    // Buscar o crear usuario asociado a este número de teléfono de forma segura
+    let user = null;
+    if (cleanPhone) {
+      try {
+        user = await prisma.user.findUnique({ where: { phoneNumber: cleanPhone } });
+        if (!user) {
+          user = await prisma.user.create({
+            data: { phoneNumber: cleanPhone, name: `Usuario ${cleanPhone}` },
+          });
+        }
+      } catch {
+        user = await prisma.user.findUnique({ where: { phoneNumber: cleanPhone } }).catch(() => null);
+      }
+    }
 
-    const profile = await prisma.botProfile.upsert({
-      where: { botId },
-      update: {
-        name: validated.name.trim(),
-        description: validated.description,
-        type: validated.type,
-        isPublic: validated.isPublic,
-        isActive: validated.isActive,
-        userId: user.id,
-        ...(validated.invalidOptionMessage ? { invalidOptionMessage: validated.invalidOptionMessage.trim() } : {}),
-      },
-      create: {
-        botId,
-        phoneNumber: cleanPhone,
-        name: validated.name.trim(),
-        description: validated.description,
-        type: validated.type,
-        isPublic: validated.isPublic,
-        isActive: validated.isActive,
-        userId: user.id,
-        invalidOptionMessage: validated.invalidOptionMessage?.trim() || "⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.",
-      },
-    });
-
-    // Guardar el flujo de menú personalizado proporcionado por el usuario en la BD (sin hardcoding)
-    if (validated.welcomeMessage || (validated.menuOptions && validated.menuOptions.length > 0)) {
-      await prisma.botFlow.deleteMany({
-        where: { botProfileId: profile.id, parentId: null }
-      });
-      await prisma.botFlow.create({
+    let profile = await prisma.botProfile.findUnique({ where: { botId } });
+    if (!profile) {
+      try {
+        profile = await prisma.botProfile.create({
+          data: {
+            botId,
+            phoneNumber: cleanPhone,
+            name: validated.name.trim(),
+            description: validated.description,
+            type: validated.type,
+            isPublic: validated.isPublic,
+            isActive: validated.isActive,
+            userId: user?.id,
+            invalidOptionMessage: validated.invalidOptionMessage?.trim() || "⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.",
+          },
+        });
+      } catch (err: any) {
+        profile = await prisma.botProfile.findUnique({ where: { botId } }) || await prisma.botProfile.findFirst({ where: { phoneNumber: cleanPhone } });
+        if (!profile) throw err;
+      }
+    } else {
+      profile = await prisma.botProfile.update({
+        where: { botId },
         data: {
-          botProfileId: profile.id,
-          name: `Menú de ${profile.name}`,
-          triggerKeyword: 'menu',
-          flowType: 'menu',
-          content: JSON.stringify(validated.menuOptions || []),
-          responseMessage: validated.welcomeMessage || `Bienvenido a ${profile.name}. Selecciona una opción:`,
-          isActive: true,
+          name: validated.name.trim(),
+          description: validated.description,
+          type: validated.type,
+          isPublic: validated.isPublic,
+          isActive: validated.isActive,
+          ...(user ? { userId: user.id } : {}),
+          ...(validated.invalidOptionMessage ? { invalidOptionMessage: validated.invalidOptionMessage.trim() } : {}),
         },
       });
     }
 
-    // Actualizar automáticamente la sesión activa del usuario al bot recién creado
-    if (profile.phoneNumber) {
-      let sessionPhone = profile.phoneNumber.replace(/[^0-9]/g, '');
-      if (sessionPhone.startsWith('549') && sessionPhone.length === 13) {
-        sessionPhone = '54' + sessionPhone.slice(3);
-      }
-      await prisma.botSession.upsert({
-        where: { senderPhone: sessionPhone },
-        update: { activeBotId: profile.botId, verified: true },
-        create: { senderPhone: sessionPhone, activeBotId: profile.botId, verified: true }
+    // Si vienen menuOptions, crear flujo de menú raíz
+    if (validated.menuOptions && validated.menuOptions.length > 0) {
+      const welcomeMsg = validated.welcomeMessage || '¡Hola! Bienvenido a nuestro asistente.';
+      const existingFlow = await prisma.botFlow.findFirst({
+        where: { botProfileId: profile.id, triggerKeyword: 'menu' }
       });
+
+      if (!existingFlow) {
+        await prisma.botFlow.create({
+          data: {
+            botProfileId: profile.id,
+            name: `Menú Principal ${profile.name}`,
+            triggerKeyword: 'menu',
+            flowType: 'menu',
+            content: JSON.stringify(validated.menuOptions),
+            responseMessage: welcomeMsg,
+            isActive: true,
+          }
+        });
+      } else {
+        await prisma.botFlow.update({
+          where: { id: existingFlow.id },
+          data: {
+            content: JSON.stringify(validated.menuOptions),
+            responseMessage: welcomeMsg,
+          }
+        });
+      }
     }
 
     return profile;
@@ -408,9 +486,9 @@ export class BotProfileService {
             triggerKeyword: 'menu',
             flowType: 'menu',
             content: JSON.stringify([
-              { label: 'Consultar información general', option: '1' },
-              { label: 'Hablar con un asesor humano', option: '2' },
-              { label: 'Horarios y ubicación', option: '3' }
+              { label: 'Consultar información general', option: '1', actionKey: 'stock.check' },
+              { label: 'Hablar con un asesor humano', option: '2', actionKey: 'support.human' },
+              { label: 'Horarios y ubicación', option: '3', actionKey: 'faq.query' }
             ]),
             responseMessage: `¡Hola! Bienvenido a ${demo.name}. Selecciona una opción del menú:`,
             isActive: true,

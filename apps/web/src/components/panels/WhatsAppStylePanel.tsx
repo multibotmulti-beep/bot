@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import logger from '@/lib/logger';
 import Icon from '@/components/Icon';
-import { BotApiClient, ChatApiClient } from '@/lib/apiClient';
+import { BotApiClient, ChatApiClient, apiFetch } from '@/lib/apiClient';
 
 interface BotProfile {
   id: string;
@@ -42,6 +42,12 @@ export default function WhatsAppStylePanel() {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Estados para Edición In-Chat en Tiempo Real
+  const [isEditingBot, setIsEditingBot] = useState(false);
+  const [editWelcomeMessage, setEditWelcomeMessage] = useState('¡Hola! Bienvenido a nuestro asistente.');
+  const [editActionKey, setEditActionKey] = useState('custom.advanced_flow');
+  const [saveMessageStatus, setSaveMessageStatus] = useState<string | null>(null);
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobileView(window.innerWidth < 768);
@@ -51,14 +57,12 @@ export default function WhatsAppStylePanel() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Cargar perfiles de bots de la cuenta
   const loadBotsAndChats = async () => {
     try {
       setLoading(true);
       const profiles = await BotApiClient.getProfiles();
       setBots(profiles);
 
-      // Determinar bot activo (el que tenga isActive === true, o el primero)
       const currentActive = profiles.find((b: BotProfile) => b.isActive) || profiles[0] || null;
       setActiveBot(currentActive);
 
@@ -80,7 +84,6 @@ export default function WhatsAppStylePanel() {
     loadBotsAndChats();
   }, []);
 
-  // Cuando cambia el bot activo, recargar conversaciones
   useEffect(() => {
     if (activeBot) {
       ChatApiClient.getConversations(activeBot.botId).then((convs) => {
@@ -95,7 +98,6 @@ export default function WhatsAppStylePanel() {
     }
   }, [activeBot]);
 
-  // Cuando cambia el teléfono seleccionado, cargar mensajes de la conversación
   useEffect(() => {
     if (selectedPhone) {
       ChatApiClient.getMessages(selectedPhone).then((msgs) => {
@@ -104,7 +106,6 @@ export default function WhatsAppStylePanel() {
     }
   }, [selectedPhone]);
 
-  // Activar un bot (solo uno activo online/público por cuenta)
   const handleActivateBot = async (botId: string) => {
     try {
       await BotApiClient.activateProfile(botId);
@@ -131,7 +132,6 @@ export default function WhatsAppStylePanel() {
 
     try {
       await ChatApiClient.sendMessage(selectedPhone, textToSend, activeBot.botId);
-      // Recargar mensajes
       const msgs = await ChatApiClient.getMessages(selectedPhone);
       setMessages(msgs);
       const convs = await ChatApiClient.getConversations(activeBot.botId);
@@ -141,18 +141,173 @@ export default function WhatsAppStylePanel() {
     }
   };
 
+  const handleSaveInlineEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeBot) return;
+
+    setSaveMessageStatus('Guardando cambios en la base de datos...');
+    try {
+      // 1. Guardar mensaje de bienvenida
+      await apiFetch(`/bot/profiles/${activeBot.id}/welcome`, {
+        method: 'PUT',
+        body: JSON.stringify({ responseMessage: editWelcomeMessage }),
+      });
+
+      // 2. Guardar configuración de función / flujo avanzado
+      await apiFetch('/bot/function-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          botId: activeBot.botId,
+          actionKey: editActionKey,
+          config: {
+            flowTitle: activeBot.name + ' - Flujo Dinámico',
+            welcomeMessage: editWelcomeMessage,
+          },
+        }),
+      });
+
+      setSaveMessageStatus('✅ ¡Cambios guardados y aplicados al instante en la base de datos!');
+      setTimeout(() => {
+        setSaveMessageStatus(null);
+        setIsEditingBot(false);
+      }, 1500);
+    } catch (err: any) {
+      setSaveMessageStatus(`❌ Error al guardar: ${err.message}`);
+    }
+  };
+
   const activeConv = conversations.find((c) => c.senderPhone === selectedPhone);
 
   return (
     <div style={{ padding: '8px 24px 16px 24px', textAlign: 'left', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-        <h1 style={{ marginTop: '4px', marginBottom: '0px', fontSize: '1.4rem' }}>Panel de Chats & Activador de Bots</h1>
+        <h1 style={{ marginTop: '4px', marginBottom: '0px', fontSize: '1.4rem' }}>Panel de Chats & Flujos en Vivo</h1>
         {activeBot && (
-          <div style={{ fontSize: '0.9rem', backgroundColor: 'var(--color-primary)', color: 'white', padding: '4px 12px', borderRadius: '12px', fontWeight: 600 }}>
-            Bot Activo: {activeBot.name} (ID: {activeBot.botId})
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ fontSize: '0.9rem', backgroundColor: 'var(--color-primary)', color: 'white', padding: '4px 12px', borderRadius: '12px', fontWeight: 600 }}>
+              Bot Activo: {activeBot.name} (ID: {activeBot.botId})
+            </div>
+            {/* SVG Edit Pencil Icon for Inline Editing */}
+            <button
+              onClick={() => setIsEditingBot(!isEditingBot)}
+              title="Editar Bot y Flujo en Tiempo Real (In-Chat)"
+              style={{
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: '50%',
+                width: '36px',
+                height: '36px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-soft)',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-primary)' }}>
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+              </svg>
+            </button>
           </div>
         )}
       </div>
+
+      {/* Inline Editing Panel (Shows when edit SVG icon is clicked) */}
+      {isEditingBot && activeBot && (
+        <form
+          onSubmit={handleSaveInlineEdit}
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            border: '2px solid var(--color-primary)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '16px',
+            marginBottom: '12px',
+            boxShadow: 'var(--shadow-soft)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>✏️ Editor en Línea In-Chat (Base de Datos)</span>
+            </h3>
+            <button
+              type="button"
+              onClick={() => setIsEditingBot(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold', color: 'var(--color-text-muted)' }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
+                Mensaje de Bienvenida / Saludo Principal
+              </label>
+              <input
+                type="text"
+                value={editWelcomeMessage}
+                onChange={(e) => setEditWelcomeMessage(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-background)',
+                  color: 'var(--color-text)',
+                  fontSize: '0.9rem',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
+                Función o Motor de Flujo Asignado
+              </label>
+              <select
+                value={editActionKey}
+                onChange={(e) => setEditActionKey(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-background)',
+                  color: 'var(--color-text)',
+                  fontSize: '0.9rem',
+                }}
+              >
+                <option value="custom.advanced_flow">🎛️ Flujo Libre / Avanzado (Multicapa)</option>
+                <option value="custom.menu_builder">📂 Creador de Menús Dinámicos</option>
+                <option value="custom.free_menu">💬 Menú Libre Personalizado</option>
+                <option value="stock.check">📦 Consulta de Stock / Inventario</option>
+                <option value="turnos.book">📅 Reserva de Turnos</option>
+                <option value="business.payment_info">💳 Datos de Pago (CBU/Alias)</option>
+                <option value="support.human">👤 Derivar a Asesor Humano</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              {saveMessageStatus || '💡 Los cambios se guardan instantáneamente en la base de datos real.'}
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setIsEditingBot(false)}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: 'var(--color-primary)', color: 'white', fontWeight: 600, cursor: 'pointer' }}
+              >
+                💾 Guardar al Instante
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
 
       {/* Contenedor principal */}
       <div

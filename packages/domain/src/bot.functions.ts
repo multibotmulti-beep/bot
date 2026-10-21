@@ -456,6 +456,116 @@ export class BotFunctionRegistry {
         };
       },
     });
+
+    this.register({
+      actionKey: 'custom.advanced_flow',
+      description: 'Flujo avanzado multicapa y totalmente editable (árbol de decisiones, captura de datos y transiciones dinámicas)',
+      handler: async (ctx) => {
+        const cfg = await BotFunctionConfigService.getConfig(ctx.botId, 'custom.advanced_flow', ctx.localConfig);
+        const flowConfig = cfg.success && cfg.config ? cfg.config : {
+          flowTitle: 'Flujo Avanzado Personalizado',
+          nodes: [
+            {
+              id: 'start',
+              message: '🌟 ¡Bienvenido al flujo avanzado!\n\nElige una opción:',
+              options: [
+                { key: '1', label: 'Ver Información', nextNode: 'info' },
+                { key: '2', label: 'Registrar mis datos', nextNode: 'input_name' }
+              ]
+            },
+            {
+              id: 'info',
+              message: 'ℹ️ Esta es la información detallada del negocio, completamente configurable desde el panel.',
+              options: [
+                { key: '0', label: 'Volver al inicio', nextNode: 'start' }
+              ]
+            },
+            {
+              id: 'input_name',
+              message: '✍️ Por favor, escribe tu nombre completo:',
+              expectInput: 'userName',
+              nextNode: 'thank_you'
+            },
+            {
+              id: 'thank_you',
+              message: '🎉 ¡Gracias {userName}! Tus datos han sido guardados y procesados correctamente.',
+              options: [
+                { key: '0', label: 'Volver al inicio', nextNode: 'start' }
+              ]
+            }
+          ]
+        };
+
+        const nodes = flowConfig.nodes || [];
+        const memoryTag = `flow_state_${ctx.senderPhone}`;
+        const memList = await BotMemoryService.list({ 
+          botId: ctx.botId, 
+          senderPhone: ctx.senderPhone, 
+          category: 'custom', 
+          tag: memoryTag 
+        });
+
+        let currentState = memList.success && memList.memories.length > 0 ? memList.memories[0].payload : null;
+        let currentNodeId = currentState?.currentNodeId || nodes[0]?.id || 'start';
+        let collectedData = currentState?.collectedData || {};
+        let currentMemoryId = memList.success && memList.memories.length > 0 ? memList.memories[0].id : null;
+
+        const incomingText = (ctx.args?.incomingText || '').trim();
+
+        const currentNode = nodes.find((n: any) => n.id === currentNodeId);
+        if (currentNode) {
+          if (incomingText && incomingText !== 'menu' && incomingText !== 'start') {
+            if (currentNode.expectInput) {
+              collectedData[currentNode.expectInput] = incomingText;
+              if (currentNode.nextNode) {
+                currentNodeId = currentNode.nextNode;
+              }
+            } else if (Array.isArray(currentNode.options)) {
+              const matchedOpt = currentNode.options.find((o: any) => o.key.toLowerCase() === incomingText.toLowerCase());
+              if (matchedOpt && matchedOpt.nextNode) {
+                currentNodeId = matchedOpt.nextNode;
+              }
+            }
+          }
+        }
+
+        const activeNode = nodes.find((n: any) => n.id === currentNodeId) || nodes[0];
+        
+        const { prisma } = await import('@repo/database');
+        if (currentMemoryId) {
+          await prisma.botMemory.update({
+            where: { id: currentMemoryId },
+            data: { payload: JSON.stringify({ currentNodeId, collectedData }), updatedAt: new Date() }
+          });
+        } else {
+          await BotMemoryService.record({
+            botId: ctx.botId,
+            senderPhone: ctx.senderPhone,
+            category: 'custom',
+            title: `Estado Flujo Avanzado - ${ctx.senderPhone}`,
+            payload: { currentNodeId, collectedData },
+            tags: [memoryTag],
+            status: 'active'
+          });
+        }
+
+        let messageText = activeNode?.message || 'Menú avanzado';
+        for (const [k, v] of Object.entries(collectedData)) {
+          messageText = messageText.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+        }
+
+        if (Array.isArray(activeNode?.options) && activeNode.options.length > 0) {
+          const optsList = activeNode.options.map((o: any) => `${o.key}. ${o.label}`).join('\n');
+          messageText += `\n\n${optsList}`;
+        }
+
+        return {
+          success: true,
+          message: `🎛️ *${flowConfig.flowTitle || 'Flujo Dinámico'}*\n\n${messageText}`,
+          data: { currentNodeId, collectedData, flowConfig }
+        };
+      },
+    });
   }
 }
 

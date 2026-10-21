@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const CreateBotProfileSchema = z.object({
+  botId: z.string().optional(),
   phoneNumber: z.string().regex(/^\+?[0-9]{8,15}$/, { message: 'El número de teléfono debe ser válido (8 a 15 dígitos)' }),
   name: z.string().min(1, { message: 'El nombre del bot es obligatorio' }),
   description: z.string().optional(),

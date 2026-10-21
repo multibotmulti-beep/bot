@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import logger from '@/lib/logger';
 
 interface DockProps {
-  onNavigate: (view: 'home' | 'analytics' | 'settings' | 'test' | 'whatsapp' | 'resources' | 'bots' | 'function-config') => void;
+  onNavigate: (view: 'home' | 'whatsapp' | 'bot-chat-simulator' | 'function-config' | 'settings') => void;
   activeView: string;
 }
 
@@ -24,7 +24,7 @@ export default function Dock({ onNavigate, activeView }: DockProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleNavigate = (view: 'home' | 'analytics' | 'settings' | 'test' | 'whatsapp' | 'resources' | 'bots' | 'function-config') => {
+  const handleNavigate = (view: 'home' | 'whatsapp' | 'bot-chat-simulator' | 'function-config' | 'settings') => {
     logger.info({ view }, 'Navegando a vista desde Dock');
     onNavigate(view);
   };
@@ -88,59 +88,49 @@ export default function Dock({ onNavigate, activeView }: DockProps) {
         gap: '12px',
       }}
     >
+      {/* 1. Inicio */}
       <button
         onClick={() => handleNavigate('home')}
         aria-label="Inicio"
         style={activeView === 'home' ? activeButtonStyle : defaultButtonStyle}
+        title="Inicio"
       >
         <Icon name="home" style={iconStyle} />
       </button>
 
-      <button
-        onClick={() => handleNavigate('analytics')}
-        aria-label="Analíticas"
-        style={activeView === 'analytics' ? activeButtonStyle : defaultButtonStyle}
-      >
-        <Icon name="analytics" style={iconStyle} />
-      </button>
-
+      {/* 3. Mensajería WhatsApp */}
       <button
         onClick={() => handleNavigate('whatsapp')}
         aria-label="Mensajería WhatsApp"
         style={activeView === 'whatsapp' ? activeButtonStyle : defaultButtonStyle}
+        title="Mensajería WhatsApp"
       >
         <Icon name="chat" style={iconStyle} />
       </button>
 
+      {/* 9. Simulador de Chat Bot en Sesión */}
       <button
-        onClick={() => handleNavigate('resources')}
-        aria-label="Panel de Recursos y Ventanas"
-        style={activeView === 'resources' ? activeButtonStyle : defaultButtonStyle}
+        onClick={() => handleNavigate('bot-chat-simulator')}
+        aria-label="Simulador de Chat Bot en Sesión"
+        style={activeView === 'bot-chat-simulator' ? activeButtonStyle : defaultButtonStyle}
+        title="Simulador de Chat Bot en Sesión"
       >
-        <Icon name="settings" style={iconStyle} />
+        <svg width="26.4" height="26.4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#059669' }}>
+          <rect x="3" y="11" width="18" height="10" rx="2" />
+          <circle cx="9" cy="16" r="1" />
+          <circle cx="15" cy="16" r="1" />
+          <path d="M12 2v9" />
+          <path d="M12 2a3 3 0 0 0-3 3" />
+        </svg>
       </button>
 
-      <button
-        onClick={() => handleNavigate('test')}
-        aria-label="Panel de Pruebas (Sandbox)"
-        style={activeView === 'test' ? activeButtonStyle : defaultButtonStyle}
-      >
-        <Icon name="help" style={iconStyle} />
-      </button>
-
-      <button
-        onClick={() => handleNavigate('bots')}
-        aria-label="Gestión de Bots"
-        style={activeView === 'bots' ? activeButtonStyle : defaultButtonStyle}
-      >
-        <Icon name="bot" style={{ ...iconStyle, color: '#ffffff' }} />
-      </button>
-
+      {/* 10. Menú */}
       <div ref={menuRef} style={{ position: 'relative' }}>
         <button
           onClick={() => setIsMenuOpen(!isMenuOpen)}
           aria-label="Menú"
           style={defaultButtonStyle}
+          title="Menú"
         >
           <Icon name="menu" style={iconStyle} />
         </button>
