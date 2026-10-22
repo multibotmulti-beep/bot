@@ -123,13 +123,9 @@ export class ChatService {
           type: 'custom',
           isPublic: true,
           isActive: true,
-          welcomeMessage: '¡Hola! Bienvenido a nuestro asistente virtual. Elige una opción:',
+          welcomeMessage: 'Acá va el título / texto de bienvenida',
           invalidOptionMessage: '⚠️ Opción incorrecta. Por favor, elige una opción válida del menú o escribe "0" para volver.',
-          menuOptions: [
-            { label: 'Ver Catálogo y Stock', option: '1', actionKey: 'stock.check' },
-            { label: 'Hablar con Asesor Humano', option: '2', actionKey: 'support.human' },
-            { label: 'Horarios y Ubicación', option: '3', actionKey: 'faq.query' }
-          ]
+          menuOptions: []
         });
         profile = await prisma.botProfile.findUnique({ where: { botId: newBotId }, include: { flows: true, rules: true } });
         console.log(`[ChatService.getMessagesByPhone] Perfil creado y cargado:`, profile?.botId);

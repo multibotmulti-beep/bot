@@ -226,6 +226,9 @@ export async function botRoutes(server: FastifyInstance) {
   }, async (request) => {
     const { id } = request.params as { id: string };
     const { menuOptions, responseMessage } = request.body as { menuOptions: any[]; responseMessage?: string };
+    console.log(`[RAW BACKEND PUT /menu] ID: ${id}`);
+    console.log(`[RAW BACKEND PUT /menu] Request Body (Raw):`, JSON.stringify(request.body, null, 2));
+
     const { prisma } = await import('@repo/database');
     
     const profile = await prisma.botProfile.findUnique({ where: { id } }) || await prisma.botProfile.findUnique({ where: { botId: id } });
@@ -237,6 +240,7 @@ export async function botRoutes(server: FastifyInstance) {
     });
 
     if (rootFlow) {
+      console.log(`[RAW BACKEND PUT /menu] Actualizando BotFlow existente ID: ${rootFlow.id}`);
       const updated = await prisma.botFlow.update({
         where: { id: rootFlow.id },
         data: {
@@ -244,8 +248,10 @@ export async function botRoutes(server: FastifyInstance) {
           responseMessage: responseMessage || rootFlow.responseMessage,
         },
       });
+      console.log(`[RAW BACKEND PUT /menu] BotFlow actualizado en BD (Raw):`, JSON.stringify(updated, null, 2));
       return { success: true, data: updated };
     } else {
+      console.log(`[RAW BACKEND PUT /menu] Creando nuevo BotFlow raíz para perfil UUID: ${profileUuid}`);
       const created = await prisma.botFlow.create({
         data: {
           botProfileId: profileUuid,
@@ -257,15 +263,24 @@ export async function botRoutes(server: FastifyInstance) {
           isActive: true,
         },
       });
+      console.log(`[RAW BACKEND PUT /menu] BotFlow creado en BD (Raw):`, JSON.stringify(created, null, 2));
       return { success: true, data: created };
     }
   });
 
   server.put('/bot/profiles/:id/welcome', {
-    schema: { description: 'Modifica el mensaje de bienvenida de un bot', tags: ['Bots & AI'] },
+    schema: { description: 'Modifica el mensaje de bienvenida y propiedades avanzadas de un bot', tags: ['Bots & AI'] },
   }, async (request) => {
     const { id } = request.params as { id: string };
-    const { responseMessage } = request.body as { responseMessage: string };
+    const { responseMessage, contentType, mediaUrl, actionKey, menuOptions } = request.body as {
+      responseMessage: string;
+      contentType?: string;
+      mediaUrl?: string;
+      actionKey?: string;
+      menuOptions?: any[];
+    };
+    console.log(`[RAW BACKEND PUT /welcome] ID: ${id}, contentType: ${contentType}, actionKey: ${actionKey}`);
+
     const { prisma } = await import('@repo/database');
 
     const profile = await prisma.botProfile.findUnique({ where: { id } }) || await prisma.botProfile.findUnique({ where: { botId: id } });
@@ -276,14 +291,34 @@ export async function botRoutes(server: FastifyInstance) {
       where: { botProfileId: profileUuid, parentId: null },
     });
 
+    const flowData: any = {
+      responseMessage,
+      contentType: contentType || 'text_menu',
+      mediaUrl: mediaUrl || null,
+      actionKey: actionKey || null,
+      content: contentType === 'text_menu' && menuOptions ? JSON.stringify(menuOptions) : JSON.stringify([])
+    };
+
     if (rootFlow) {
       const updated = await prisma.botFlow.update({
         where: { id: rootFlow.id },
-        data: { responseMessage },
+        data: flowData,
       });
-      return { success: true, data: updated };
+      console.log(`[RAW BACKEND PUT /welcome] BotFlow actualizado en BD:`, updated);
+      return { success: true, data: { profile, flow: updated } };
     } else {
-      return { success: false, message: 'No se encontró un flujo raíz para este bot.' };
+      const created = await prisma.botFlow.create({
+        data: {
+          botProfileId: profileUuid,
+          name: `Menú Principal de ${profile.name}`,
+          triggerKeyword: 'menu',
+          flowType: 'menu',
+          ...flowData,
+          isActive: true,
+        },
+      });
+      console.log(`[RAW BACKEND PUT /welcome] BotFlow creado en BD:`, created);
+      return { success: true, data: { profile, flow: created } };
     }
   });
 

@@ -88,10 +88,12 @@ model BotFlow {
   botProfileId    String?
   parentId        String?
   name            String
-  triggerKeyword  String
-  flowType        String
-  content         String
-  responseMessage String
+  triggerKeyword  String      @default("")
+  contentType     String      @default("text_menu")
+  mediaUrl        String?
+  flowType        String      @default("menu")
+  content         String      @default("[]")
+  responseMessage String      @default("")
   actionKey       String?
   isActive        Boolean     @default(true)
   createdAt       DateTime    @default(now())

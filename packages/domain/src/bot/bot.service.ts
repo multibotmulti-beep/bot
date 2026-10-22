@@ -62,10 +62,13 @@ export class BotService {
       data: {
         botProfileId: validated.botProfileId,
         name: validated.name.trim(),
-        triggerKeyword: validated.triggerKeyword.toLowerCase().trim(),
-        flowType: validated.flowType,
-        content: validated.content,
-        responseMessage: validated.responseMessage,
+        triggerKeyword: (validated.triggerKeyword || '').toLowerCase().trim(),
+        contentType: validated.contentType,
+        mediaUrl: validated.mediaUrl,
+        flowType: validated.flowType || 'menu',
+        content: typeof validated.content === 'string' ? validated.content : JSON.stringify(validated.content),
+        responseMessage: validated.responseMessage || '',
+        actionKey: validated.actionKey,
         isActive: validated.isActive,
       },
     });
@@ -82,10 +85,13 @@ export class BotService {
       where: { id },
       data: {
         name: data.name?.trim(),
-        triggerKeyword: data.triggerKeyword?.toLowerCase().trim(),
+        triggerKeyword: data.triggerKeyword !== undefined ? data.triggerKeyword.toLowerCase().trim() : undefined,
+        contentType: data.contentType,
+        mediaUrl: data.mediaUrl,
         flowType: data.flowType,
-        content: data.content,
+        content: data.content !== undefined ? (typeof data.content === 'string' ? data.content : JSON.stringify(data.content)) : undefined,
         responseMessage: data.responseMessage,
+        actionKey: data.actionKey,
         isActive: data.isActive,
       },
     });
@@ -364,10 +370,21 @@ export class BotService {
           data: { currentParentFlowId: matchedFlow.id },
         });
 
-        if (matchedFlow.actionKey) {
-          const result = await BotFunctionRegistry.execute(matchedFlow.actionKey, { senderPhone, botId: profile.botId });
-          matchedResponse = result.message || matchedFlow.responseMessage;
+        if (matchedFlow.contentType === 'text_plain') {
+          matchedResponse = matchedFlow.responseMessage;
+        } else if (matchedFlow.contentType === 'single_function' || matchedFlow.actionKey) {
+          const actionToExec = matchedFlow.actionKey || (matchedFlow.content && (() => { try { return JSON.parse(matchedFlow.content).actionKey; } catch { return null; } })());
+          if (actionToExec) {
+            const result = await BotFunctionRegistry.execute(actionToExec, { senderPhone, botId: profile.botId });
+            matchedResponse = result.message || matchedFlow.responseMessage;
+          } else {
+            matchedResponse = matchedFlow.responseMessage;
+          }
+        } else if (matchedFlow.contentType === 'media_interactive') {
+          // Multimedia interactiva: Si tiene mediaUrl, la envía, y mantiene el menú oculto o ejecuta acción asociada
+          matchedResponse = matchedFlow.responseMessage ? `${matchedFlow.mediaUrl ? '[IMAGEN: ' + matchedFlow.mediaUrl + ']\n' : ''}${matchedFlow.responseMessage}` : (matchedFlow.mediaUrl ? `[IMAGEN: ${matchedFlow.mediaUrl}]` : 'Multimedia interactiva');
         } else {
+          // text_menu (por defecto)
           let menuText = matchedFlow.responseMessage + '\n\n';
           try {
             const parsed = JSON.parse(matchedFlow.content);

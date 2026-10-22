@@ -478,19 +478,15 @@ export class BotProfileService {
           },
         });
 
-        // Crear flujo de menú de bienvenida para el demo
+        // Crear flujo de menú de bienvenida limpio sin opciones hardcodeadas
         await prisma.botFlow.create({
           data: {
             botProfileId: profile.id,
             name: `Menú Principal ${demo.name}`,
             triggerKeyword: 'menu',
             flowType: 'menu',
-            content: JSON.stringify([
-              { label: 'Consultar información general', option: '1', actionKey: 'stock.check' },
-              { label: 'Hablar con un asesor humano', option: '2', actionKey: 'support.human' },
-              { label: 'Horarios y ubicación', option: '3', actionKey: 'faq.query' }
-            ]),
-            responseMessage: `¡Hola! Bienvenido a ${demo.name}. Selecciona una opción del menú:`,
+            content: JSON.stringify([]),
+            responseMessage: 'Acá va el título / texto de bienvenida',
             isActive: true,
           },
         });
