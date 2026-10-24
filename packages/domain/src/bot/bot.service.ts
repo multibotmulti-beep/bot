@@ -56,11 +56,12 @@ export class BotService {
 
   static async createFlow(data: CreateBotFlowDTO) {
     const validated = CreateBotFlowSchema.parse(data);
-    logger.info({ name: validated.name, botProfileId: validated.botProfileId }, 'Creando flujo de conversación');
+    logger.info({ name: validated.name, botProfileId: validated.botProfileId, parentId: validated.parentId }, 'Creando flujo de conversación');
 
     return await prisma.botFlow.create({
       data: {
         botProfileId: validated.botProfileId,
+        parentId: validated.parentId || null,
         name: validated.name.trim(),
         triggerKeyword: (validated.triggerKeyword || '').toLowerCase().trim(),
         contentType: validated.contentType,
@@ -81,6 +82,14 @@ export class BotService {
 
   static async updateFlow(id: string, data: any) {
     logger.info({ flowId: id }, 'Actualizando flujo');
+    
+    let contentValue = data.content;
+    if (contentValue === undefined && data.menuOptions !== undefined) {
+      contentValue = JSON.stringify(data.menuOptions);
+    } else if (data.contentType === 'text' || data.contentType === 'text_plain') {
+      contentValue = JSON.stringify([]);
+    }
+
     return await prisma.botFlow.update({
       where: { id },
       data: {
@@ -89,12 +98,54 @@ export class BotService {
         contentType: data.contentType,
         mediaUrl: data.mediaUrl,
         flowType: data.flowType,
-        content: data.content !== undefined ? (typeof data.content === 'string' ? data.content : JSON.stringify(data.content)) : undefined,
+        content: contentValue !== undefined ? (typeof contentValue === 'string' ? contentValue : JSON.stringify(contentValue)) : undefined,
         responseMessage: data.responseMessage,
         actionKey: data.actionKey,
         isActive: data.isActive,
       },
     });
+  }
+
+  static async getMessageNodes(botProfileId?: string) {
+    logger.info({ botProfileId }, 'Obteniendo nodos de mensajes encadenados');
+    const where = botProfileId ? { botProfileId } : {};
+    return await prisma.botMessageNode.findMany({ where, orderBy: [{ sequenceOrder: 'asc' }, { createdAt: 'asc' }] });
+  }
+
+  static async createMessageNode(data: any) {
+    logger.info({ botProfileId: data.botProfileId, parentId: data.parentId }, 'Creando nodo de mensaje encadenado');
+    return await prisma.botMessageNode.create({
+      data: {
+        botProfileId: data.botProfileId,
+        parentId: data.parentId || null,
+        sequenceOrder: data.sequenceOrder || 1,
+        messageText: data.messageText || '',
+        contentType: data.contentType || 'text_plain',
+        mediaUrl: data.mediaUrl || null,
+        actionKey: data.actionKey || null,
+        isActive: data.isActive !== undefined ? data.isActive : true,
+      },
+    });
+  }
+
+  static async updateMessageNode(id: string, data: any) {
+    logger.info({ nodeId: id }, 'Actualizando nodo de mensaje encadenado');
+    return await prisma.botMessageNode.update({
+      where: { id },
+      data: {
+        messageText: data.messageText,
+        contentType: data.contentType,
+        mediaUrl: data.mediaUrl,
+        actionKey: data.actionKey,
+        sequenceOrder: data.sequenceOrder,
+        isActive: data.isActive,
+      },
+    });
+  }
+
+  static async deleteMessageNode(id: string) {
+    logger.info({ nodeId: id }, 'Eliminando nodo de mensaje encadenado');
+    return await prisma.botMessageNode.delete({ where: { id } });
   }
 
   static async sendWhatsAppMessage(senderPhone: string, text: string, phoneNumberId?: string) {
