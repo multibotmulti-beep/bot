@@ -28,15 +28,21 @@ export const CreateBotRuleSchema = z.object({
 
 export const CreateBotFlowSchema = z.object({
   botProfileId: z.string().min(1, { message: 'El ID del flujo es obligatorio' }),
+  parentId: z.string().optional().nullable(),
   name: z.string().min(1, { message: 'El nombre del flujo es obligatorio' }),
   triggerKeyword: z.string().optional().default(''),
-  contentType: z.enum(['text_plain', 'single_function', 'text_menu', 'media_interactive']).optional(),
+  contentType: z.enum(['text_plain', 'single_function', 'text_menu', 'media_interactive', 'image_menu']).optional(),
   mediaUrl: z.string().optional().nullable(),
   flowType: z.enum(['menu', 'conversation']).optional().default('menu'),
   content: z.any().optional().default('[]'),
   responseMessage: z.string().optional().default(''),
   actionKey: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
+  messages: z.array(z.object({
+    contentType: z.string().optional(),
+    responseMessage: z.string().optional(),
+    mediaUrl: z.string().optional().nullable()
+  })).optional(),
 });
 
 export const UpdateBotFlowSchema = CreateBotFlowSchema.partial();

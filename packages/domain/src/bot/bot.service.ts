@@ -49,16 +49,59 @@ export class BotService {
   }
 
   static async getFlows(botProfileId?: string) {
-    logger.info({ botProfileId }, 'Obteniendo flujos de conversación');
+    logger.info({ botProfileId }, 'Obteniendo flujos de conversación con configuración y jerarquía completa');
     const where = botProfileId ? { botProfileId } : {};
-    return await prisma.botFlow.findMany({ where, orderBy: { createdAt: 'desc' } });
+    const flows = await prisma.botFlow.findMany({
+      where,
+      include: {
+        parent: {
+          select: { id: true, name: true, triggerKeyword: true, responseMessage: true, contentType: true }
+        },
+        children: {
+          select: { id: true, name: true, triggerKeyword: true, responseMessage: true, contentType: true, flowType: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return flows.map(flow => {
+      let parsedContent = [];
+      try {
+        parsedContent = flow.content ? JSON.parse(flow.content) : [];
+      } catch (e) {
+        parsedContent = [];
+      }
+      return {
+        ...flow,
+        menuOptions: parsedContent,
+        configuration: {
+          contentType: flow.contentType,
+          flowType: flow.flowType,
+          mediaUrl: flow.mediaUrl,
+          actionKey: flow.actionKey,
+          isActive: flow.isActive,
+          triggerKeyword: flow.triggerKeyword,
+        },
+        hierarchy: {
+          parentId: flow.parentId,
+          parent: flow.parent,
+          children: flow.children,
+          attachedCount: flow.children?.length || 0,
+        }
+      };
+    });
   }
 
   static async createFlow(data: CreateBotFlowDTO) {
     const validated = CreateBotFlowSchema.parse(data);
     logger.info({ name: validated.name, botProfileId: validated.botProfileId, parentId: validated.parentId }, 'Creando flujo de conversación');
 
-    return await prisma.botFlow.create({
+    // Validación solicitada: Si es menú libre / texto sin función (actionKey), debe exigir al menos un mensaje de texto mínimo
+    if (!validated.actionKey && (!validated.responseMessage || validated.responseMessage.trim() === '')) {
+      throw new Error('Validación requerida: Para menús libres o nodos de texto sin función asignada, debes configurar al menos un mensaje de texto mínimo de respuesta.');
+    }
+
+    const createdFlow = await prisma.botFlow.create({
       data: {
         botProfileId: validated.botProfileId,
         parentId: validated.parentId || null,
@@ -73,6 +116,28 @@ export class BotService {
         isActive: validated.isActive,
       },
     });
+
+    // Si la opción incluye múltiples mensajes adjuntos (ej. secuencia texto + imagen/medios), crear nodos hijos automáticamente
+    if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+      for (const [index, msg] of data.messages.entries()) {
+        await prisma.botFlow.create({
+          data: {
+            botProfileId: validated.botProfileId,
+            parentId: createdFlow.id,
+            name: `${validated.name} - Mensaje ${index + 2}`,
+            triggerKeyword: '',
+            contentType: msg.contentType || 'text_plain',
+            mediaUrl: msg.mediaUrl || null,
+            flowType: 'conversation',
+            content: '[]',
+            responseMessage: msg.responseMessage || '',
+            isActive: true,
+          }
+        });
+      }
+    }
+
+    return createdFlow;
   }
 
   static async deleteFlow(id: string) {
@@ -106,47 +171,73 @@ export class BotService {
     });
   }
 
-  static async getMessageNodes(botProfileId?: string) {
-    logger.info({ botProfileId }, 'Obteniendo nodos de mensajes encadenados');
-    const where = botProfileId ? { botProfileId } : {};
-    return await prisma.botMessageNode.findMany({ where, orderBy: [{ sequenceOrder: 'asc' }, { createdAt: 'asc' }] });
-  }
-
-  static async createMessageNode(data: any) {
-    logger.info({ botProfileId: data.botProfileId, parentId: data.parentId }, 'Creando nodo de mensaje encadenado');
-    return await prisma.botMessageNode.create({
-      data: {
-        botProfileId: data.botProfileId,
-        parentId: data.parentId || null,
-        sequenceOrder: data.sequenceOrder || 1,
-        messageText: data.messageText || '',
-        contentType: data.contentType || 'text_plain',
-        mediaUrl: data.mediaUrl || null,
-        actionKey: data.actionKey || null,
-        isActive: data.isActive !== undefined ? data.isActive : true,
-      },
+  static async getConversationTree(botProfileId: string) {
+    logger.info({ botProfileId }, 'Obteniendo árbol jerárquico de conversación');
+    const profile = await prisma.botProfile.findUnique({
+      where: { id: botProfileId },
+      include: {
+        flows: {
+          include: {
+            children: true
+          }
+        }
+      }
     });
-  }
 
-  static async updateMessageNode(id: string, data: any) {
-    logger.info({ nodeId: id }, 'Actualizando nodo de mensaje encadenado');
-    return await prisma.botMessageNode.update({
-      where: { id },
-      data: {
-        messageText: data.messageText,
-        contentType: data.contentType,
-        mediaUrl: data.mediaUrl,
-        actionKey: data.actionKey,
-        sequenceOrder: data.sequenceOrder,
-        isActive: data.isActive,
-      },
+    if (!profile) {
+      throw new Error('Perfil de bot no encontrado');
+    }
+
+    const flowMap = new Map();
+    profile.flows.forEach(f => {
+      let options = [];
+      try {
+        options = f.content ? JSON.parse(f.content) : [];
+      } catch {
+        options = [];
+      }
+      flowMap.set(f.id, {
+        id: f.id,
+        parentId: f.parentId,
+        name: f.name,
+        triggerKeyword: f.triggerKeyword,
+        messageType: f.contentType || 'text_menu',
+        mediaUrl: f.mediaUrl,
+        responseMessage: f.responseMessage,
+        options,
+        metadata: {
+          flowType: f.flowType,
+          actionKey: f.actionKey,
+          isActive: f.isActive,
+          createdAt: f.createdAt,
+          updatedAt: f.updatedAt
+        },
+        children: []
+      });
     });
+
+    const rootNodes: any[] = [];
+    flowMap.forEach(node => {
+      if (node.parentId && flowMap.has(node.parentId)) {
+        flowMap.get(node.parentId).children.push(node);
+      } else {
+        rootNodes.push(node);
+      }
+    });
+
+    return {
+      success: true,
+      data: {
+        profileId: profile.id,
+        botId: profile.botId,
+        botName: profile.name,
+        invalidOptionMessage: profile.invalidOptionMessage,
+        rootNodes
+      }
+    };
   }
 
-  static async deleteMessageNode(id: string) {
-    logger.info({ nodeId: id }, 'Eliminando nodo de mensaje encadenado');
-    return await prisma.botMessageNode.delete({ where: { id } });
-  }
+
 
   static async sendWhatsAppMessage(senderPhone: string, text: string, phoneNumberId?: string) {
     try {

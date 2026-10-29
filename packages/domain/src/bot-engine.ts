@@ -532,13 +532,10 @@ export class UserBotEngine extends BaseBotEngine {
             if (actionKey) {
               const result = await BotFunctionRegistry.execute(actionKey, { senderPhone, botId: profile.botId });
               matchedResponse = result.message;
-            } else if (selectedItem.response) {
-              matchedResponse = selectedItem.response;
             } else {
+              // Si no tiene actionKey, verificar si tiene un nodo hijo (submenú) o respuesta de texto
               const childFlow = await prisma.botFlow.findFirst({
                 where: { botProfileId: profile.id, parentId: parentFlow.id, triggerKeyword: selectedItem.option },
-              }) || await prisma.botFlow.findFirst({
-                where: { botProfileId: profile.id, parentId: parentFlow.id },
               });
               if (childFlow) {
                 await prisma.botSession.update({
@@ -546,6 +543,8 @@ export class UserBotEngine extends BaseBotEngine {
                   data: { currentParentFlowId: childFlow.id },
                 });
                 matchedResponse = childFlow.responseMessage;
+              } else if (selectedItem.response || selectedItem.customResponse) {
+                matchedResponse = selectedItem.response || selectedItem.customResponse;
               } else {
                 matchedResponse = `Has seleccionado: *${selectedItem.label}*. (Opción sin función ni submenú configurado).`;
               }

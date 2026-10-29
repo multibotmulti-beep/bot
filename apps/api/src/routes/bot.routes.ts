@@ -94,6 +94,13 @@ export async function botRoutes(server: FastifyInstance) {
     return { success: true, data: profile };
   });
 
+  server.get('/bot/profiles/:id/tree', {
+    schema: { description: 'Obtiene el árbol conversacional jerárquico de nodos para un perfil de bot', tags: ['Bots & AI'] },
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+    return await BotService.getConversationTree(id);
+  });
+
   // Reglas de Bots
   server.get('/bot/rules', {
     schema: { description: 'Lista las reglas de respuesta automática', tags: ['Bots & AI'] },
