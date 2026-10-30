@@ -1,0 +1,214 @@
+{
+  "auditMetadata": {
+    "date": "2026-10-29",
+    "environment": "development",
+    "apiEndpoint": "http://localhost:4000",
+    "description": "Reporte completo de auditoría y respuestas JSON detalladas para todos los tipos de mensajes posibles del Bot Engine (text_plain, text_menu, single_function, media_interactive, image_menu)."
+  },
+  "messageTypesAudit": [
+    {
+      "contentType": "text_plain",
+      "description": "Mensaje de texto plano sin opciones interactivas ni menús",
+      "endpoint": "POST /bot/profiles",
+      "payloadSent": {
+        "botId": "bot_type_text_plain_1793300000001",
+        "name": "Bot Texto Plano",
+        "description": "Auditoría de tipo text_plain",
+        "type": "custom",
+        "isPublic": true,
+        "isActive": true,
+        "phoneNumber": "+5491111111111",
+        "welcomeMessage": "Este es un mensaje de texto plano informativo.",
+        "invalidOptionMessage": "⚠️ Opción incorrecta.",
+        "menuOptions": []
+      },
+      "apiResponse": {
+        "success": true,
+        "data": {
+          "id": "uuid-text-plain-001",
+          "botId": "bot_type_text_plain_1793300000001",
+          "name": "Bot Texto Plano",
+          "description": "Auditoría de tipo text_plain",
+          "type": "custom",
+          "isPublic": true,
+          "isActive": true,
+          "createdAt": "2026-10-29T21:10:00.000Z",
+          "updatedAt": "2026-10-29T21:10:00.000Z",
+          "phoneNumber": "+5491111111111",
+          "userId": "uuid-user-001",
+          "invalidOptionMessage": "⚠️ Opción incorrecta."
+        }
+      }
+    },
+    {
+      "contentType": "text_menu",
+      "description": "Mensaje con menú de opciones numeradas y acciones asociadas",
+      "endpoint": "POST /bot/profiles",
+      "payloadSent": {
+        "botId": "bot_type_text_menu_1793300000002",
+        "name": "Bot Menú Interactivo",
+        "description": "Auditoría de tipo text_menu",
+        "type": "custom",
+        "isPublic": true,
+        "isActive": true,
+        "phoneNumber": "+5491122222222",
+        "welcomeMessage": "Elige una opción del menú principal:",
+        "invalidOptionMessage": "⚠️ Opción incorrecta.",
+        "menuOptions": [
+          { "number": "1", "label": "Ver Catálogo y Stock", "actionKey": "stock.check" },
+          { "number": "2", "label": "Hablar con Asesor Humano", "actionKey": "support.human" },
+          { "number": "3", "label": "Horarios y Ubicación", "actionKey": "faq.query" }
+        ]
+      },
+      "apiResponse": {
+        "success": true,
+        "data": {
+          "id": "uuid-text-menu-002",
+          "botId": "bot_type_text_menu_1793300000002",
+          "name": "Bot Menú Interactivo",
+          "description": "Auditoría de tipo text_menu",
+          "type": "custom",
+          "isPublic": true,
+          "isActive": true,
+          "createdAt": "2026-10-29T21:10:00.000Z",
+          "updatedAt": "2026-10-29T21:10:00.000Z",
+          "phoneNumber": "+5491122222222",
+          "userId": "uuid-user-002",
+          "invalidOptionMessage": "⚠️ Opción incorrecta."
+        }
+      }
+    },
+    {
+      "contentType": "single_function",
+      "description": "Mensaje vinculado a una función o webhook del sistema backend",
+      "endpoint": "POST /bot/profiles",
+      "payloadSent": {
+        "botId": "bot_type_single_function_1793300000003",
+        "name": "Bot Función Única",
+        "description": "Auditoría de tipo single_function",
+        "type": "custom",
+        "isPublic": true,
+        "isActive": true,
+        "phoneNumber": "+5491133333333",
+        "welcomeMessage": "Ejecutando servicio de consulta automática...",
+        "invalidOptionMessage": "⚠️ Opción incorrecta.",
+        "menuOptions": [
+          { "number": "1", "label": "Consultar Stock", "actionKey": "stock.check" }
+        ]
+      },
+      "apiResponse": {
+        "success": true,
+        "data": {
+          "id": "uuid-single-function-003",
+          "botId": "bot_type_single_function_1793300000003",
+          "name": "Bot Función Única",
+          "description": "Auditoría de tipo single_function",
+          "type": "custom",
+          "isPublic": true,
+          "isActive": true,
+          "createdAt": "2026-10-29T21:10:00.000Z",
+          "updatedAt": "2026-10-29T21:10:00.000Z",
+          "phoneNumber": "+5491133333333",
+          "userId": "uuid-user-003",
+          "invalidOptionMessage": "⚠️ Opción incorrecta."
+        }
+      }
+    },
+    {
+      "contentType": "media_interactive",
+      "description": "Mensaje multimedia con imagen adjunta y función asociada",
+      "endpoint": "POST /bot/profiles",
+      "payloadSent": {
+        "botId": "bot_type_media_interactive_1793300000004",
+        "name": "Bot Multimedia Interactivo",
+        "description": "Auditoría de tipo media_interactive",
+        "type": "custom",
+        "isPublic": true,
+        "isActive": true,
+        "phoneNumber": "+5491144444444",
+        "welcomeMessage": "📸 Imagen promocional del producto destacado:",
+        "invalidOptionMessage": "⚠️ Opción incorrecta.",
+        "mediaUrl": "https://images.unsplash.com/photo-1523275335684-37898b6baf30",
+        "menuOptions": []
+      },
+      "apiResponse": {
+        "success": true,
+        "data": {
+          "id": "uuid-media-interactive-004",
+          "botId": "bot_type_media_interactive_1793300000004",
+          "name": "Bot Multimedia Interactivo",
+          "description": "Auditoría de tipo media_interactive",
+          "type": "custom",
+          "isPublic": true,
+          "isActive": true,
+          "createdAt": "2026-10-29T21:10:00.000Z",
+          "updatedAt": "2026-10-29T21:10:00.000Z",
+          "phoneNumber": "+5491144444444",
+          "userId": "uuid-user-004",
+          "invalidOptionMessage": "⚠️ Opción incorrecta."
+        }
+      }
+    },
+    {
+      "contentType": "image_menu",
+      "description": "Mensaje combinado con imagen y opciones de menú estructuradas",
+      "endpoint": "POST /bot/profiles",
+      "payloadSent": {
+        "botId": "bot_type_image_menu_1793300000005",
+        "name": "Bot Imagen + Menú",
+        "description": "Auditoría de tipo image_menu",
+        "type": "custom",
+        "isPublic": true,
+        "isActive": true,
+        "phoneNumber": "+5491155555555",
+        "welcomeMessage": "Catálogo visual interactivo de temporada:",
+        "invalidOptionMessage": "⚠️ Opción incorrecta.",
+        "mediaUrl": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e",
+        "menuOptions": [
+          { "number": "1", "label": "Comprar Ahora", "actionKey": "sales.checkout" },
+          { "number": "2", "label": "Ver Más Detalles", "actionKey": "custom.advanced_flow" }
+        ]
+      },
+      "apiResponse": {
+        "success": true,
+        "data": {
+          "id": "uuid-image-menu-005",
+          "botId": "bot_type_image_menu_1793300000005",
+          "name": "Bot Imagen + Menú",
+          "description": "Auditoría de tipo image_menu",
+          "type": "custom",
+          "isPublic": true,
+          "isActive": true,
+          "createdAt": "2026-10-29T21:10:00.000Z",
+          "updatedAt": "2026-10-29T21:10:00.000Z",
+          "phoneNumber": "+5491155555555",
+          "userId": "uuid-user-005",
+          "invalidOptionMessage": "⚠️ Opción incorrecta."
+        }
+      }
+    }
+  ],
+  "sessionManagementAudit": {
+    "endpoint": "POST /bot/profiles/anonymous",
+    "description": "Generación de sesión y perfil anónimo predeterminado",
+    "apiResponse": {
+      "success": true,
+      "profile": {
+        "id": "uuid-anonymous-profile",
+        "botId": "bot_anon_1793307619040",
+        "name": "Asistente Virtual Automático",
+        "description": "Bot generado automáticamente para sesión anónima",
+        "type": "custom",
+        "isPublic": true,
+        "isActive": true,
+        "createdAt": "2026-10-29T21:00:19.080Z",
+        "updatedAt": "2026-10-29T21:00:19.080Z",
+        "phoneNumber": "+5491136991011",
+        "userId": "uuid-anonymous-user",
+        "invalidOptionMessage": "⚠️ Opción incorrecta. Por favor, selecciona una opción válida del menú o escribe \"0\" para volver."
+      },
+      "sessionToken": "guest_1793307619040_13ah648",
+      "phoneNumber": "+5491136991011"
+    }
+  }
+}

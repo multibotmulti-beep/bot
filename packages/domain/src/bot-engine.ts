@@ -398,65 +398,77 @@ export class MasterBotEngine extends BaseBotEngine {
       return { processed: false, reason: 'admin_profile_missing' };
     }
 
-    // 4. Evaluar flujos y reglas del Admin desde Base de Datos con unión a funciones
+    // 4. Evaluar flujos y reglas del Admin desde Base de Datos con unión a funciones y manejo estricto de menú único
     let matchedResponse: string | null = null;
     const currentParentId = session.currentParentFlowId || null;
-    const flows = await prisma.botFlow.findMany({
-      where: { botProfileId: profile.id, isActive: true, parentId: currentParentId },
-    });
+    logger.info({ senderPhone, currentParentId, incomingText }, '[AdminBotEngine] Evaluando estado de menú único activo');
 
-    if (incomingText.match(/^[0-9]+$/)) {
-      const optIndex = parseInt(incomingText, 10) - 1;
-      const parentFlow = currentParentId ? await prisma.botFlow.findUnique({ where: { id: currentParentId } }) : await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
+    try {
+      const flows = await prisma.botFlow.findMany({
+        where: { botProfileId: profile.id, isActive: true, parentId: currentParentId },
+      });
 
-      if (parentFlow) {
-        try {
-          const contentJson = JSON.parse(parentFlow.content);
-          if (Array.isArray(contentJson) && contentJson[optIndex]) {
-            const selectedItem = contentJson[optIndex];
-            if (selectedItem.customResponse !== undefined && selectedItem.customResponse !== '') {
-              matchedResponse = selectedItem.customResponse;
-            } else if (selectedItem.actionKey) {
-              const result = await BotFunctionRegistry.execute(selectedItem.actionKey, { senderPhone, botId: profile.botId });
-              matchedResponse = result.message;
-            } else if (selectedItem.option) {
-              const childFlow = await prisma.botFlow.findFirst({
-                where: { botProfileId: profile.id, parentId: parentFlow.id, triggerKeyword: selectedItem.option },
-              });
-              if (childFlow) {
-                await prisma.botSession.update({
-                  where: { senderPhone: session.senderPhone },
-                  data: { currentParentFlowId: childFlow.id },
+      if (incomingText.match(/^[0-9]+$/)) {
+        const optIndex = parseInt(incomingText, 10) - 1;
+        const parentFlow = currentParentId ? await prisma.botFlow.findUnique({ where: { id: currentParentId } }) : await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
+
+        if (parentFlow) {
+          try {
+            const contentJson = JSON.parse(parentFlow.content);
+            if (Array.isArray(contentJson) && contentJson[optIndex]) {
+              const selectedItem = contentJson[optIndex];
+              logger.info({ selectedItem, optIndex, parentFlowId: parentFlow.id }, '[AdminBotEngine] Opción de menú seleccionada con éxito');
+
+              if (selectedItem.customResponse !== undefined && selectedItem.customResponse !== '') {
+                matchedResponse = selectedItem.customResponse;
+              } else if (selectedItem.actionKey) {
+                const result = await BotFunctionRegistry.execute(selectedItem.actionKey, { senderPhone, botId: profile.botId });
+                matchedResponse = result.message;
+              } else if (selectedItem.option) {
+                const childFlow = await prisma.botFlow.findFirst({
+                  where: { botProfileId: profile.id, parentId: parentFlow.id, triggerKeyword: selectedItem.option },
                 });
-                matchedResponse = childFlow.responseMessage;
+                if (childFlow) {
+                  await prisma.botSession.update({
+                    where: { senderPhone: session.senderPhone },
+                    data: { currentParentFlowId: childFlow.id },
+                  });
+                  logger.info({ newParentFlowId: childFlow.id }, '[AdminBotEngine] Transición a nuevo menú único activo');
+                  matchedResponse = childFlow.responseMessage;
+                }
               }
+            } else {
+              logger.warn({ optIndex, totalOptions: Array.isArray(contentJson) ? contentJson.length : 0 }, '[AdminBotEngine] Índice de opción fuera de rango en menú activo');
             }
+          } catch (parseErr) {
+            logger.error({ err: parseErr, content: parentFlow.content }, '[AdminBotEngine] Error al parsear JSON del contenido del menú');
           }
-        } catch {
-          // JSON parse error
         }
       }
-    }
 
-    if (!matchedResponse) {
-      const rules = await prisma.botRule.findMany({ where: { botProfileId: profile.id, isActive: true } });
-      const matchedRule = rules.find(r => r.matchType === 'exact' && r.keyword.toLowerCase() === incomingText);
-      if (matchedRule) {
-        if (matchedRule.actionKey) {
-          const res = await BotFunctionRegistry.execute(matchedRule.actionKey, { senderPhone, botId: profile.botId });
-          matchedResponse = res.message || matchedRule.responseMessage;
+      if (!matchedResponse) {
+        const rules = await prisma.botRule.findMany({ where: { botProfileId: profile.id, isActive: true } });
+        const matchedRule = rules.find(r => r.matchType === 'exact' && r.keyword.toLowerCase() === incomingText);
+        if (matchedRule) {
+          if (matchedRule.actionKey) {
+            const res = await BotFunctionRegistry.execute(matchedRule.actionKey, { senderPhone, botId: profile.botId });
+            matchedResponse = res.message || matchedRule.responseMessage;
+          } else {
+            matchedResponse = matchedRule.responseMessage;
+          }
         } else {
-          matchedResponse = matchedRule.responseMessage;
-        }
-      } else {
-        // Mostrar menú raíz por defecto desde BD
-        const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
-        if (rootFlow) {
-          matchedResponse = rootFlow.responseMessage || '¡Hola! Bienvenido al asistente virtual.';
-        } else {
-          matchedResponse = 'Bienvenido al Bot Admin Central. Envía "menu" para ver las opciones.';
+          // Mostrar menú raíz por defecto desde BD
+          const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null } });
+          if (rootFlow) {
+            matchedResponse = rootFlow.responseMessage || '¡Hola! Bienvenido al asistente virtual.';
+          } else {
+            matchedResponse = 'Bienvenido al Bot Admin Central. Envía "menu" para ver las opciones.';
+          }
         }
       }
+    } catch (menuEvalErr) {
+      logger.error({ err: menuEvalErr, senderPhone }, '[AdminBotEngine] Error crítico evaluando flujo de menú');
+      matchedResponse = '⚠️ Ocurrió un error al procesar su solicitud en el menú. Por favor intente nuevamente o envíe "0" para volver.';
     }
 
     await this.sendResponseToWhatsApp(senderPhone, matchedResponse || 'Operación completada', phoneNumberId);
@@ -476,7 +488,7 @@ export class UserBotEngine extends BaseBotEngine {
 
   async processMessage(context: IncomingMessageContext): Promise<any> {
     const { senderPhone, incomingText, phoneNumberId } = context;
-    logger.info({ senderPhone, incomingText, botId: this.botId }, 'UserBotEngine procesando mensaje de bot hijo');
+    logger.info({ senderPhone, incomingText, botId: this.botId }, '[UserBotEngine] Procesando mensaje de bot hijo con menú único activo');
 
     let session = await this.getOrCreateSession(senderPhone, this.botId);
 
@@ -487,6 +499,7 @@ export class UserBotEngine extends BaseBotEngine {
 
     if (!profile || !profile.isActive) {
       const err = `El bot hijo [${this.botId}] no está activo o no existe. Regresando al menú principal.`;
+      logger.warn({ botId: this.botId, senderPhone }, '[UserBotEngine] Bot inactivo o no encontrado');
       await prisma.botSession.update({
         where: { senderPhone: session.senderPhone },
         data: { activeBotId: BotConfig.defaultBotId, currentParentFlowId: null },
@@ -497,85 +510,93 @@ export class UserBotEngine extends BaseBotEngine {
 
     let matchedResponse: string | null = null;
     const currentParentId = session.currentParentFlowId || null;
+    logger.info({ senderPhone, botId: this.botId, currentParentId, incomingText }, '[UserBotEngine] Estado de menú único actual verificado');
 
-    const flows = await prisma.botFlow.findMany({
-      where: { botProfileId: profile.id, isActive: true, parentId: currentParentId },
-    });
+    try {
+      const flows = await prisma.botFlow.findMany({
+        where: { botProfileId: profile.id, isActive: true, parentId: currentParentId },
+      });
 
-    if (incomingText.match(/^[0-9]+$/)) {
-      const optIndex = parseInt(incomingText, 10) - 1;
-      logger.info({ incomingText, profileId: profile.id, currentParentId, optIndex }, 'UserBotEngine evaluando texto numérico');
-      const parentFlow = currentParentId ? await prisma.botFlow.findUnique({ where: { id: currentParentId } }) : await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
-      logger.info({ parentFlowFound: !!parentFlow, parentFlowId: parentFlow?.id }, 'Resultado de búsqueda de parentFlow');
+      if (incomingText.match(/^[0-9]+$/)) {
+        const optIndex = parseInt(incomingText, 10) - 1;
+        logger.info({ incomingText, profileId: profile.id, currentParentId, optIndex }, '[UserBotEngine] Evaluando opción numérica en menú activo');
+        const parentFlow = currentParentId ? await prisma.botFlow.findUnique({ where: { id: currentParentId } }) : await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
+        logger.info({ parentFlowFound: !!parentFlow, parentFlowId: parentFlow?.id }, '[UserBotEngine] Resultado de búsqueda de parentFlow');
 
-      if (parentFlow) {
-        try {
-          logger.info({ parentFlowContent: parentFlow.content }, 'Contenido de parentFlow');
-          const contentJson = JSON.parse(parentFlow.content);
-          logger.info({ contentJson }, 'ContentJson parseado');
-          if (Array.isArray(contentJson) && contentJson[optIndex]) {
-            const selectedItem = contentJson[optIndex];
-            logger.info({ selectedItem }, 'Item seleccionado del menú');
-            let actionKey = selectedItem.actionKey;
-            if (!actionKey && selectedItem.label) {
-              const lbl = selectedItem.label.toLowerCase();
-              if (lbl.includes('stock') || lbl.includes('inventario') || lbl.includes('catalogo')) actionKey = 'stock.check';
-              else if (lbl.includes('pago') || lbl.includes('cobro') || lbl.includes('cbu') || lbl.includes('alias') || lbl.includes('banco')) actionKey = 'business.payment_info';
-              else if (lbl.includes('turno') || lbl.includes('reserva')) actionKey = 'turnos.book';
-              else if (lbl.includes('pedido') || lbl.includes('compra')) actionKey = 'pedidos.create';
-              else if (lbl.includes('asesor') || lbl.includes('soporte') || lbl.includes('humano')) actionKey = 'support.human';
-              else if (selectedItem.option === '1') actionKey = 'stock.check';
-              else if (selectedItem.option === '2') actionKey = 'business.payment_info';
-              else if (selectedItem.option === '3') actionKey = 'turnos.book';
-            }
-
-            if (actionKey) {
-              const result = await BotFunctionRegistry.execute(actionKey, { senderPhone, botId: profile.botId });
-              matchedResponse = result.message;
-            } else {
-              // Si no tiene actionKey, verificar si tiene un nodo hijo (submenú) o respuesta de texto
-              const childFlow = await prisma.botFlow.findFirst({
-                where: { botProfileId: profile.id, parentId: parentFlow.id, triggerKeyword: selectedItem.option },
-              });
-              if (childFlow) {
-                await prisma.botSession.update({
-                  where: { senderPhone: session.senderPhone },
-                  data: { currentParentFlowId: childFlow.id },
-                });
-                matchedResponse = childFlow.responseMessage;
-              } else if (selectedItem.response || selectedItem.customResponse) {
-                matchedResponse = selectedItem.response || selectedItem.customResponse;
-              } else {
-                matchedResponse = `Has seleccionado: *${selectedItem.label}*. (Opción sin función ni submenú configurado).`;
+        if (parentFlow) {
+          try {
+            logger.info({ parentFlowContent: parentFlow.content }, '[UserBotEngine] Analizando JSON de opciones del menú activo');
+            const contentJson = JSON.parse(parentFlow.content);
+            if (Array.isArray(contentJson) && contentJson[optIndex]) {
+              const selectedItem = contentJson[optIndex];
+              logger.info({ selectedItem, optIndex }, '[UserBotEngine] Ítem de menú seleccionado correctamente');
+              let actionKey = selectedItem.actionKey;
+              if (!actionKey && selectedItem.label) {
+                const lbl = selectedItem.label.toLowerCase();
+                if (lbl.includes('stock') || lbl.includes('inventario') || lbl.includes('catalogo')) actionKey = 'stock.check';
+                else if (lbl.includes('pago') || lbl.includes('cobro') || lbl.includes('cbu') || lbl.includes('alias') || lbl.includes('banco')) actionKey = 'business.payment_info';
+                else if (lbl.includes('turno') || lbl.includes('reserva')) actionKey = 'turnos.book';
+                else if (lbl.includes('pedido') || lbl.includes('compra')) actionKey = 'pedidos.create';
+                else if (lbl.includes('asesor') || lbl.includes('soporte') || lbl.includes('humano')) actionKey = 'support.human';
+                else if (selectedItem.option === '1') actionKey = 'stock.check';
+                else if (selectedItem.option === '2') actionKey = 'business.payment_info';
+                else if (selectedItem.option === '3') actionKey = 'turnos.book';
               }
-            }
-            logger.info({ matchedResponse }, 'Respuesta emparejada por selección numérica');
-          }
-        } catch (err) {
-          logger.error({ err }, 'Error parseando content de botFlow o procesando selección');
-        }
-      }
-    }
 
-    if (!matchedResponse) {
-      const rules = await prisma.botRule.findMany({ where: { botProfileId: profile.id, isActive: true } });
-      const matchedRule = rules.find(r => r.matchType === 'exact' && r.keyword.toLowerCase() === incomingText);
-      if (matchedRule) {
-        if (matchedRule.actionKey) {
-          const res = await BotFunctionRegistry.execute(matchedRule.actionKey, { senderPhone, botId: profile.botId });
-          matchedResponse = res.message || matchedRule.responseMessage;
-        } else {
-          matchedResponse = matchedRule.responseMessage;
-        }
-      } else {
-        const invalidMsg = profile.invalidOptionMessage || "⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.";
-        const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
-        if (rootFlow) {
-          matchedResponse = `${invalidMsg}\n\n${rootFlow.responseMessage}`;
-        } else {
-          matchedResponse = `${invalidMsg}\n\nEnvía "0" para regresar al menú principal.`;
+              if (actionKey) {
+                const result = await BotFunctionRegistry.execute(actionKey, { senderPhone, botId: profile.botId });
+                matchedResponse = result.message;
+              } else {
+                // Si no tiene actionKey, verificar si tiene un nodo hijo (submenú) o respuesta de texto
+                const childFlow = await prisma.botFlow.findFirst({
+                  where: { botProfileId: profile.id, parentId: parentFlow.id, triggerKeyword: selectedItem.option },
+                });
+                if (childFlow) {
+                  await prisma.botSession.update({
+                    where: { senderPhone: session.senderPhone },
+                    data: { currentParentFlowId: childFlow.id },
+                  });
+                  logger.info({ childFlowId: childFlow.id }, '[UserBotEngine] Transición exitosa a nuevo menú hijo único activo');
+                  matchedResponse = childFlow.responseMessage;
+                } else if (selectedItem.response || selectedItem.customResponse) {
+                  matchedResponse = selectedItem.response || selectedItem.customResponse;
+                } else {
+                  matchedResponse = `Has seleccionado: *${selectedItem.label}*. (Opción sin función ni submenú configurado).`;
+                }
+              }
+              logger.info({ matchedResponse }, '[UserBotEngine] Respuesta generada para menú activo');
+            } else {
+              logger.warn({ optIndex, totalOptions: Array.isArray(contentJson) ? contentJson.length : 0 }, '[UserBotEngine] Opción numérica fuera de rango en menú activo');
+            }
+          } catch (jsonErr) {
+            logger.error({ err: jsonErr, parentFlowId: parentFlow.id }, '[UserBotEngine] Error al parsear JSON de opciones del menú');
+          }
         }
       }
+
+      if (!matchedResponse) {
+        const rules = await prisma.botRule.findMany({ where: { botProfileId: profile.id, isActive: true } });
+        const matchedRule = rules.find(r => r.matchType === 'exact' && r.keyword.toLowerCase() === incomingText);
+        if (matchedRule) {
+          if (matchedRule.actionKey) {
+            const res = await BotFunctionRegistry.execute(matchedRule.actionKey, { senderPhone, botId: profile.botId });
+            matchedResponse = res.message || matchedRule.responseMessage;
+          } else {
+            matchedResponse = matchedRule.responseMessage;
+          }
+        } else {
+          const invalidMsg = profile.invalidOptionMessage || "⚠️ Opción incorrecta. Por favor, elige una de las opciones presentes en el menú o escribe '0' para volver.";
+          const rootFlow = await prisma.botFlow.findFirst({ where: { botProfileId: profile.id, isActive: true, parentId: null }, orderBy: { updatedAt: 'desc' } });
+          if (rootFlow) {
+            matchedResponse = `${invalidMsg}\n\n${rootFlow.responseMessage}`;
+          } else {
+            matchedResponse = `${invalidMsg}\n\nEnvía "0" para regresar al menú principal.`;
+          }
+        }
+      }
+    } catch (engineErr) {
+      logger.error({ err: engineErr, botId: this.botId, senderPhone }, '[UserBotEngine] Error crítico en el procesamiento del menú');
+      matchedResponse = '⚠️ Ocurrió un error al procesar su solicitud en el menú. Por favor envíe "0" para regresar al menú principal.';
     }
 
     await this.sendResponseToWhatsApp(senderPhone, matchedResponse || 'Respuesta por defecto', phoneNumberId, this.botId);

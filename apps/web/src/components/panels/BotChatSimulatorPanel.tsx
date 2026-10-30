@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import logger from '@/lib/logger';
 import { BotApiClient, ChatApiClient, apiFetch } from '@/lib/apiClient';
+import ChatStudioContainer from '@/components/chat-studio/ChatStudioContainer';
 
 // ==========================================
 // INTERFACES Y TIPOS (Extensibles para subsistemas complejos)
@@ -467,6 +468,28 @@ export default function BotChatSimulatorPanel() {
     } catch (err: any) {
       setEditStatus(`Error: ${err.message}`);
       addDbLog(`Error al eliminar opción: ${err.message}`, 'ERROR');
+    }
+  };
+
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!activeBot) return;
+    setEditStatus('Eliminando mensaje / nodo...');
+    try {
+      await apiFetch(`/bot/flows/${msgId}`, {
+        method: 'DELETE',
+      });
+      setEditingMsgId(null);
+      setChainedCreatorParentId(null);
+      addDbLog(`Nodo / mensaje ${msgId} eliminado correctamente de la base de datos`);
+      const updatedProfiles = await BotApiClient.getProfiles();
+      const freshBot = updatedProfiles.find((b: BotProfile) => b.botId === activeBot.botId || b.id === activeBot.id) || activeBot;
+      setActiveBot(freshBot);
+      setBots(updatedProfiles);
+      await loadPersistentMessages(userPhone, freshBot);
+      setTimeout(() => setEditStatus(null), 1000);
+    } catch (err: any) {
+      setEditStatus(`Error al eliminar: ${err.message}`);
+      alert(`Error al eliminar mensaje: ${err.message}`);
     }
   };
 
@@ -988,519 +1011,56 @@ export default function BotChatSimulatorPanel() {
             backgroundSize: '20px 20px'
           }}
         >
-          {messages.map((msg) => {
-            const isUser = msg.direction === 'outgoing';
-            return (
-              <div
-                key={msg.id || Math.random()}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: isUser ? 'flex-end' : 'flex-start',
-                  maxWidth: '100%'
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: '75%',
-                    padding: '10px 14px',
-                    borderRadius: isUser ? '12px 0 12px 12px' : '0 12px 12px 12px',
-                    backgroundColor: isUser ? '#d9fdd3' : '#ffffff',
-                    color: '#111b21',
-                    fontSize: '0.92rem',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                    position: 'relative',
-                    wordBreak: 'break-word',
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: '1.4'
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: '0.72rem', color: isUser ? '#0070f3' : '#00a884', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {isUser ? <SvgIcons.user /> : <SvgIcons.bot />}
-                      <span>{isUser ? 'Usuario' : (activeBot?.name || 'Bot Asistente')}</span>
-                    </div>
-                    {!isUser && (
-                      <button
-                        onClick={() => {
-                          const rootFlow = (activeBot as any)?.flows?.find((f: any) => !f.parentId);
-                          setEditingMsgId(msg.id);
-                          setEditMsgText(rootFlow?.responseMessage || msg.message);
-                          setEditActionKey(rootFlow?.actionKey || 'custom.advanced_flow');
-                          setEditContentType(rootFlow?.contentType || 'text_menu');
-                          setEditMediaUrl(rootFlow?.mediaUrl || '');
-                        }}
-                        title="Editar mensaje en tiempo real"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#00a884', display: 'flex', alignItems: 'center' }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-
-                  {editingMsgId === msg.id ? (
-                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#fcfdfd', padding: '12px', borderRadius: '8px', border: '1px solid #00a884', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-                      <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={() => setEditContentType('text_plain')}
-                          style={{ flex: 1, padding: '4px 6px', fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: editContentType === 'text_plain' ? '#00a884' : '#f1f5f9', color: editContentType === 'text_plain' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                          <SvgIcons.text /> Texto
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditContentType('single_function')}
-                          style={{ flex: 1, padding: '4px 6px', fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: editContentType === 'single_function' ? '#00a884' : '#f1f5f9', color: editContentType === 'single_function' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                          <SvgIcons.function /> Función
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditContentType('text_menu')}
-                          style={{ flex: 1, padding: '4px 6px', fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: editContentType === 'text_menu' ? '#00a884' : '#f1f5f9', color: editContentType === 'text_menu' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                          <SvgIcons.menu /> Menú
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditContentType('media_interactive')}
-                          style={{ flex: 1, padding: '4px 6px', fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: editContentType === 'media_interactive' ? '#00a884' : '#f1f5f9', color: editContentType === 'media_interactive' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                          <SvgIcons.image /> Imagen
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditContentType('image_menu')}
-                          style={{ flex: 1, padding: '4px 6px', fontSize: '0.7rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: editContentType === 'image_menu' ? '#00a884' : '#f1f5f9', color: editContentType === 'image_menu' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                          <SvgIcons.image /> <SvgIcons.menu /> Img+Menú
-                        </button>
-                      </div>
-
-                      {(editContentType === 'media_interactive' || editContentType === 'image_menu') && (
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, marginBottom: '2px', color: '#475569' }}>URL de la Imagen / Banner:</label>
-                          <input
-                            type="text"
-                            value={editMediaUrl}
-                            onChange={(e) => setEditMediaUrl(e.target.value)}
-                            placeholder="https://ejemplo.com/imagen.jpg"
-                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', backgroundColor: '#ffffff', color: '#111b21' }}
-                          />
-                        </div>
-                      )}
-
-                      {(editContentType === 'single_function' || editContentType === 'media_interactive') && (
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, marginBottom: '2px', color: '#475569' }}>Función Oculta Asociada:</label>
-                          <select
-                            value={editActionKey}
-                            onChange={(e) => setEditActionKey(e.target.value)}
-                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid #00a884', fontSize: '0.8rem', backgroundColor: '#ffffff', color: '#111b21', fontWeight: 600 }}
-                          >
-                            <option value="custom.advanced_flow">Flujo Libre / Avanzado</option>
-                            <option value="stock.check">Consulta de Stock / Inventario</option>
-                            <option value="turnos.book">Reserva de Turnos</option>
-                            <option value="business.payment_info">Datos de Pago</option>
-                            <option value="support.human">Derivar a Asesor Humano</option>
-                          </select>
-                        </div>
-                      )}
-
-                      <textarea
-                        value={editMsgText}
-                        onChange={(e) => setEditMsgText(e.target.value)}
-                        placeholder="Texto del mensaje..."
-                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', resize: 'vertical', color: '#111b21', backgroundColor: '#ffffff' }}
-                        rows={2}
-                      />
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{editStatus || 'Sincronización en vivo'}</span>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            onClick={() => setEditingMsgId(null)}
-                            style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', background: 'transparent', fontSize: '0.75rem', cursor: 'pointer', color: '#334155' }}
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => handleSaveMessageEdit(msg.id)}
-                            style={{ padding: '3px 10px', borderRadius: '4px', border: 'none', background: '#00a884', color: '#ffffff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                          >
-                            Guardar
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      {activeBot && (() => {
-                        const rootFlow = (activeBot as any)?.flows?.find((f: any) => !f.parentId);
-                        if (rootFlow && rootFlow.contentType === 'media_interactive' && rootFlow.mediaUrl) {
-                          return (
-                            <div style={{ marginBottom: '8px' }}>
-                              <img 
-                                src={rootFlow.mediaUrl} 
-                                alt="Multimedia interactiva" 
-                                style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }}
-                                onError={(e: any) => { e.target.style.display = 'none'; }}
-                              />
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <div>{msg.message}</div>
-                    </div>
-                  )}
-
-                  {/* OPCIONES DE MENÚ INTERACTIVO CON EDICIÓN INDIVIDUAL SVG IN-CHAT */}
-                  {msg.options && msg.options.length > 0 && (() => {
-                    const rootFlow = (activeBot as any)?.flows?.find((f: any) => !f.parentId);
-                    const isMenuType = !rootFlow || rootFlow.contentType === 'text_menu' || !rootFlow.contentType;
-                    if (!isMenuType) return null;
-                    return (
-                      <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {msg.options.map((opt: any, idx: number) => {
-                          const optNumber = opt.number || opt.id || String(idx + 1);
-                          const optLabel = opt.label || opt.customResponse || optNumber;
-                          const isClicked = msg.clickedOption === optNumber;
-                          const isOptEditing = editingOpt?.msgId === msg.id && editingOpt?.idx === idx;
-
-                          return (
-                            <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {isOptEditing ? (
-                                <div style={{ backgroundColor: '#f8fafc', padding: '8px 10px', borderRadius: '8px', border: '1px solid #00a884', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                  <div style={{ fontWeight: 600, fontSize: '0.75rem', color: '#00a884' }}>✏️ Editar Opción #{optNumber}</div>
-                                  <input
-                                    type="text"
-                                    value={editOptLabel}
-                                    onChange={(e) => setEditOptLabel(e.target.value)}
-                                    placeholder="Texto de la opción..."
-                                    style={{ padding: '6px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem', color: '#111b21', backgroundColor: '#ffffff' }}
-                                  />
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                    <label style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 600 }}>Función Vinculada:</label>
-                                    <select
-                                      value={editOptActionKey}
-                                      onChange={(e) => setEditOptActionKey(e.target.value)}
-                                      style={{ padding: '4px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem', backgroundColor: '#ffffff', color: '#111b21' }}
-                                    >
-                                      <option value="custom.advanced_flow">🎛️ Flujo Libre / Avanzado (custom.advanced_flow)</option>
-                                      <option value="custom.menu_builder">📂 Creador de Menús Dinámicos</option>
-                                      <option value="custom.free_menu">💬 Menú Libre Personalizado</option>
-                                      <option value="stock.check">📦 Consulta de Stock / Inventario</option>
-                                      <option value="turnos.book">📅 Reserva de Turnos</option>
-                                      <option value="business.payment_info">💳 Datos de Pago (CBU/Alias)</option>
-                                      <option value="support.human">👤 Derivar a Asesor Humano</option>
-                                    </select>
-                                  </div>
-                                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px', marginTop: '2px' }}>
-                                    <button
-                                      onClick={() => setEditingOpt(null)}
-                                      style={{ padding: '3px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', color: '#334155' }}
-                                    >
-                                      Cancelar
-                                    </button>
-                                    <button
-                                      onClick={() => handleSaveOptionEdit(msg.id, idx)}
-                                      style={{ padding: '3px 10px', fontSize: '0.75rem', background: '#00a884', color: '#ffffff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
-                                    >
-                                      💾 Guardar Opción
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <button
-                                    onClick={() => handleOptionClick(msg.id, optNumber)}
-                                    disabled={Boolean(msg.clickedOption)}
-                                    style={{
-                                      flex: 1,
-                                      textAlign: 'left',
-                                      padding: '8px 12px',
-                                      borderRadius: '8px',
-                                      border: '1px solid #00a884',
-                                      backgroundColor: isClicked ? '#00a884' : '#f0f2f5',
-                                      color: isClicked ? '#ffffff' : '#00a884',
-                                      fontSize: '0.85rem',
-                                      fontWeight: 600,
-                                      cursor: msg.clickedOption ? 'default' : 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      transition: 'all 0.2s'
-                                    }}
-                                  >
-                                    <span>{optNumber}. {optLabel}</span>
-                                    <span style={{ fontSize: '0.7rem', opacity: 0.8, backgroundColor: 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
-                                      {opt.actionKey || 'función'}
-                                    </span>
-                                  </button>
-                                  {!isUser && (
-                                    <>
-                                      <button
-                                        onClick={() => {
-                                          setEditingOpt({ msgId: msg.id, idx });
-                                          setEditOptLabel(optLabel);
-                                          setEditOptActionKey(opt.actionKey || 'custom.advanced_flow');
-                                        }}
-                                        title={`Editar Opción #${optNumber} y su Función`}
-                                        style={{
-                                          background: '#ffffff',
-                                          border: '1px solid #00a884',
-                                          borderRadius: '6px',
-                                          padding: '6px',
-                                          cursor: 'pointer',
-                                          color: '#00a884',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                                        }}
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
-                                        </svg>
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteOption(msg.id, idx)}
-                                        title={`Eliminar Opción #${optNumber}`}
-                                        style={{
-                                          background: '#ffffff',
-                                          border: '1px solid #ef4444',
-                                          borderRadius: '6px',
-                                          padding: '6px',
-                                          cursor: 'pointer',
-                                          color: '#ef4444',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                                        }}
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <polyline points="3 6 5 6 21 6"></polyline>
-                                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                        </svg>
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '4px', fontSize: '0.65rem', color: '#667781' }}>
-                    <span>{new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    {isUser && <SvgIcons.checkDouble />}
-                  </div>
-                </div>
-
-                {/* GLOBO SEPARADO PARA CREAR NUEVO MENSAJE CON EL MISMO FORMATO DE LOS GLOBOS (SIMPLE PARA USUARIO FINAL) */}
-                {!isUser && (
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-start', marginTop: '6px' }}>
-                    {chainedCreatorParentId !== msg.id ? (
-                      <button
-                        onClick={() => {
-                          setChainedCreatorParentId(msg.id);
-                          setNewChainedText('');
-                          setNewChainedType('text_plain');
-                          setNewChainedKeyword(`key_${Date.now().toString().slice(-4)}`);
-                          setNewChainedActionKey('custom.advanced_flow');
-                        }}
-                        style={{
-                          maxWidth: '75%',
-                          width: 'fit-content',
-                          padding: '10px 14px',
-                          borderRadius: '0 12px 12px 12px',
-                          backgroundColor: '#ffffff',
-                          color: '#00a884',
-                          fontSize: '0.92rem',
-                          fontWeight: 600,
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                          border: 'none',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        Crear nuevo mensaje
-                      </button>
-                    ) : (
-                      <div style={{
-                        maxWidth: '75%',
-                        width: 'fit-content',
-                        minWidth: '280px',
-                        backgroundColor: '#ffffff',
-                        borderRadius: '0 12px 12px 12px',
-                        padding: '10px 14px',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                        boxSizing: 'border-box',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        fontSize: '0.92rem',
-                        color: '#111b21'
-                      }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#00a884', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <SvgIcons.bot />
-                            <span>Crear nuevo mensaje</span>
-                          </div>
-                          <button
-                            onClick={() => setChainedCreatorParentId(null)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem', fontWeight: 700 }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '3px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            onClick={() => setNewChainedType('text_plain')}
-                            style={{ padding: '3px 6px', fontSize: '0.65rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: newChainedType === 'text_plain' ? '#00a884' : '#f1f5f9', color: newChainedType === 'text_plain' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          >
-                            <SvgIcons.text /> Texto
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewChainedType('single_function')}
-                            style={{ padding: '3px 6px', fontSize: '0.65rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: newChainedType === 'single_function' ? '#00a884' : '#f1f5f9', color: newChainedType === 'single_function' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          >
-                            <SvgIcons.function /> Función
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewChainedType('text_menu')}
-                            style={{ padding: '3px 6px', fontSize: '0.65rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: newChainedType === 'text_menu' ? '#00a884' : '#f1f5f9', color: newChainedType === 'text_menu' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          >
-                            <SvgIcons.menu /> Menú
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewChainedType('media_interactive')}
-                            style={{ padding: '3px 6px', fontSize: '0.65rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: newChainedType === 'media_interactive' ? '#00a884' : '#f1f5f9', color: newChainedType === 'media_interactive' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          >
-                            <SvgIcons.image /> Imagen
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewChainedType('image_menu')}
-                            style={{ padding: '3px 6px', fontSize: '0.65rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: newChainedType === 'image_menu' ? '#00a884' : '#f1f5f9', color: newChainedType === 'image_menu' ? '#fff' : '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          >
-                            <SvgIcons.image />+<SvgIcons.menu /> Img+Menú
-                          </button>
-                        </div>
-
-                        {(newChainedType === 'media_interactive' || newChainedType === 'image_menu') && (
-                          <div>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, marginBottom: '2px', color: '#475569' }}>URL de la Imagen:</label>
-                            <input
-                              type="text"
-                              value={newChainedMediaUrl}
-                              onChange={(e) => setNewChainedMediaUrl(e.target.value)}
-                              placeholder="https://..."
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', backgroundColor: '#ffffff', color: '#111b21' }}
-                            />
-                          </div>
-                        )}
-
-                        {(newChainedType === 'single_function' || newChainedType === 'media_interactive') && (
-                          <div>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, marginBottom: '2px', color: '#475569' }}>Acción / Función Asociada:</label>
-                            <select
-                              value={newChainedActionKey}
-                              onChange={(e) => setNewChainedActionKey(e.target.value)}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid #00a884', fontSize: '0.8rem', backgroundColor: '#ffffff', color: '#111b21', fontWeight: 600 }}
-                            >
-                              <option value="custom.advanced_flow">Flujo Libre / Avanzado</option>
-                              <option value="stock.check">Consulta de Stock / Inventario</option>
-                              <option value="turnos.book">Reserva de Turnos</option>
-                              <option value="business.payment_info">Datos de Pago</option>
-                              <option value="support.human">Derivar a Asesor Humano</option>
-                            </select>
-                          </div>
-                        )}
-
-                        {(newChainedType === 'text_menu' || newChainedType === 'image_menu') && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#475569' }}>Opciones del Menú:</label>
-                              <button
-                                type="button"
-                                onClick={() => setNewChainedOptions(prev => [...prev, { label: `Opción ${prev.length + 1}`, actionKey: 'stock.check' }])}
-                                style={{ background: '#00a884', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 6px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: 600 }}
-                              >
-                                + Agregar Opción
-                              </button>
-                            </div>
-                            {newChainedOptions.map((opt, oIdx) => (
-                              <div key={oIdx} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                <input
-                                  type="text"
-                                  value={opt.label}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setNewChainedOptions(prev => prev.map((item, idx) => idx === oIdx ? { ...item, label: val } : item));
-                                  }}
-                                  placeholder={`Opción ${oIdx + 1}`}
-                                  style={{ flex: 1, padding: '4px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setNewChainedOptions(prev => prev.filter((_, idx) => idx !== oIdx))}
-                                  style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 6px', fontSize: '0.7rem', cursor: 'pointer' }}
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <textarea
-                          value={newChainedText}
-                          onChange={(e) => setNewChainedText(e.target.value)}
-                          placeholder="Escribe el texto del mensaje..."
-                          rows={2}
-                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', resize: 'vertical', color: '#111b21', backgroundColor: '#ffffff', outline: 'none' }}
-                        />
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{editStatus || ''}</span>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                              onClick={() => setChainedCreatorParentId(null)}
-                              style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #cbd5e1', background: 'transparent', fontSize: '0.75rem', cursor: 'pointer', color: '#334155', fontWeight: 600 }}
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              onClick={() => handleSaveChainedNode(msg.id)}
-                              style={{ padding: '4px 12px', borderRadius: '4px', border: 'none', background: '#00a884', color: '#ffffff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                            >
-                              Guardar
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <ChatStudioContainer
+            messages={messages}
+            activeBotName={activeBot?.name || 'Bot Asistente'}
+            editingMsgId={editingMsgId}
+            creatingChildParentId={chainedCreatorParentId}
+            editorInitialData={{
+              responseMessage: editMsgText,
+              contentType: editContentType,
+              mediaUrl: editMediaUrl,
+              actionKey: editActionKey,
+              options: activeBot?.options || []
+            }}
+            onStartEdit={(msg) => {
+              const rootFlow = (activeBot as any)?.flows?.find((f: any) => !f.parentId);
+              setEditingMsgId(msg.id);
+              setEditMsgText(rootFlow?.responseMessage || msg.message);
+              setEditActionKey(rootFlow?.actionKey || 'custom.advanced_flow');
+              setEditContentType(rootFlow?.contentType || 'text_menu');
+              setEditMediaUrl(rootFlow?.mediaUrl || '');
+              setChainedCreatorParentId(null);
+            }}
+            onStartCreateChild={(parentId) => {
+              setChainedCreatorParentId(parentId);
+              setEditingMsgId(null);
+            }}
+            onSaveEditor={async (payload) => {
+              if (editingMsgId) {
+                setEditMsgText(payload.responseMessage);
+                setEditContentType(payload.contentType);
+                setEditMediaUrl(payload.mediaUrl || '');
+                setEditActionKey(payload.actionKey || 'custom.advanced_flow');
+                await handleSaveMessageEdit(editingMsgId);
+              } else if (chainedCreatorParentId) {
+                setNewChainedText(payload.responseMessage);
+                setNewChainedType(payload.contentType as any);
+                setNewChainedMediaUrl(payload.mediaUrl || '');
+                setNewChainedActionKey(payload.actionKey || 'custom.advanced_flow');
+                if (payload.menuOptions) {
+                  setNewChainedOptions(payload.menuOptions.map((o: any) => ({ label: o.label, actionKey: o.actionKey || 'custom.advanced_flow' })));
+                }
+                await handleSaveChainedNode(chainedCreatorParentId);
+              }
+            }}
+            onDeleteMessage={handleDeleteMessage}
+            onCancelEditor={() => {
+              setEditingMsgId(null);
+              setChainedCreatorParentId(null);
+            }}
+            onOptionClick={(msgId, optNum) => handleOptionClick(msgId, optNum)}
+          />
 
           <div ref={messagesEndRef} />
         </div>
