@@ -1,38 +1,20 @@
 'use client';
 
 import React from 'react';
-import Icon from '@/components/Icon';
-
-export interface BaseBubbleProps {
-  message?: {
-    id: string;
-    senderPhone: string;
-    message: string;
-    contentType?: string;
-    mediaUrl?: string;
-    options?: Array<{ number?: string; label: string; actionKey?: string }>;
-    direction: 'incoming' | 'outgoing';
-    clickedOption?: string;
-  };
-  isUser: boolean;
-  botName?: string;
-  onEdit?: () => void;
-  onAddChild?: () => void;
-  isCreatorBubble?: boolean;
-  creatorPrompt?: string;
-  onCreateCreatorClick?: () => void;
-  isCreating?: boolean;
-  children: React.ReactNode;
-}
+import { BaseBubbleProps } from './types';
+import InternalEditorBox, { ContentType } from './internals/InternalEditorBox';
+import BubbleHeader from './internals/BubbleHeader';
 
 export default function BaseBubble({
   message,
   isUser,
   botName = 'Bot Asistente',
   onEdit,
-  onAddChild,
+  onSaveEdit,
+  onCancelEdit,
+  isEditing = false,
   isCreatorBubble = false,
-  creatorPrompt = '➕ Crear nuevo mensaje',
+  creatorPrompt = 'Crear nuevo mensaje',
   onCreateCreatorClick,
   isCreating = false,
   children
@@ -48,71 +30,49 @@ export default function BaseBubble({
     >
       <div
         style={{
-          maxWidth: '82%',
-          width: isCreating ? '100%' : 'fit-content',
-          minWidth: isCreating ? '320px' : '200px',
+          maxWidth: isEditing ? '650px' : '85%',
+          maxHeight: isEditing ? '520px' : 'none',
+          overflowY: isEditing ? 'auto' : 'visible',
+          width: isCreatorBubble || isEditing ? '100%' : 'fit-content',
+          minWidth: isCreating ? '320px' : '220px',
           padding: '12px 16px',
           borderRadius: isUser ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
           backgroundColor: isUser ? '#d9fdd3' : '#ffffff',
           color: '#111b21',
           fontSize: '0.92rem',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+          boxShadow: 'none',
           position: 'relative',
           wordBreak: 'break-word',
-          whiteSpace: 'pre-wrap',
           lineHeight: '1.45',
-          border: isUser ? 'none' : '1px solid #e2e8f0'
+          border: 'none'
         }}
       >
-        {/* Cabecera de la burbuja */}
-        <div
-          style={{
-            fontWeight: 600,
-            fontSize: '0.72rem',
-            color: isUser ? '#0070f3' : '#00a884',
-            marginBottom: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            {isUser ? <Icon name="user" style={{ width: '14px', height: '14px' }} /> : <Icon name="chat" style={{ width: '14px', height: '14px' }} />}
-            <span>{isUser ? 'Usuario' : botName}</span>
-          </div>
+        {/* Cabecera Flexible y Reutilizable con SVG Variable */}
+        <BubbleHeader
+          isUser={isUser}
+          botName={botName}
+          isEditing={isEditing}
+          isCreatorBubble={isCreatorBubble}
+          contentType={message?.contentType}
+          onEdit={onEdit}
+        />
 
-          {!isUser && !isCreatorBubble && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {onEdit && (
-                <button
-                  type="button"
-                  onClick={onEdit}
-                  title="Editar con el editor unificado"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '2px 4px',
-                    color: '#00a884',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    fontSize: '0.7rem',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    backgroundColor: '#f1f5f9'
-                  }}
-                >
-                  ✏️ Editar
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Contenido inyectado de la burbuja o Botón de Creador */}
-        {isCreatorBubble && !isCreating ? (
+        {/* Contenido de Edición Interna Encapsulado */}
+        {isEditing && message ? (
+          <InternalEditorBox
+            initialText={message.message}
+            initialContentType={(message.contentType as ContentType) || 'text_menu'}
+            initialMediaUrl={message.mediaUrl}
+            initialActionKey={message.options?.[0]?.actionKey || 'custom.advanced_flow'}
+            initialOptions={message.options || []}
+            onSave={(data) => {
+              if (onSaveEdit) onSaveEdit(data);
+            }}
+            onCancel={() => {
+              if (onCancelEdit) onCancelEdit();
+            }}
+          />
+        ) : isCreatorBubble && !isCreating ? (
           <button
             type="button"
             onClick={onCreateCreatorClick}
@@ -131,6 +91,10 @@ export default function BaseBubble({
               gap: '6px'
             }}
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
             <span>{creatorPrompt}</span>
           </button>
         ) : (

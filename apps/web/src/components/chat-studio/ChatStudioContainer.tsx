@@ -56,21 +56,31 @@ export default function ChatStudioContainer({
 
         return (
           <React.Fragment key={msg.id}>
-            {/* Burbuja Principal del Mensaje */}
+            {/* Burbuja Principal con Edición Interna Encapsulada */}
             <BaseBubble
               message={msg}
               isUser={isUser}
               botName={activeBotName}
               onEdit={!isUser ? () => onStartEdit(msg) : undefined}
+              isEditing={isEditing}
+              onSaveEdit={(data) => {
+                onSaveEditor({
+                  responseMessage: data.responseMessage,
+                  contentType: data.contentType,
+                  mediaUrl: data.mediaUrl,
+                  actionKey: data.actionKey,
+                  menuOptions: data.menuOptions
+                });
+              }}
+              onCancelEdit={onCancelEditor}
             >
               {contentType === 'text_plain' || contentType === 'single_function' ? (
                 <TextBubble messageText={msg.message} />
               ) : contentType === 'media_interactive' ? (
-                <MediaBubble messageText={msg.message} mediaUrl={msg.mediaUrl} />
+                <MediaBubble mediaUrl={msg.mediaUrl || ''} caption={msg.message} />
               ) : contentType === 'image_menu' ? (
-                <MediaBubble
+                <MenuBubble
                   messageText={msg.message}
-                  mediaUrl={msg.mediaUrl}
                   options={msg.options || []}
                   clickedOption={msg.clickedOption}
                   onOptionClick={(optNum) => onOptionClick && onOptionClick(msg.id, optNum)}
@@ -85,21 +95,7 @@ export default function ChatStudioContainer({
               )}
             </BaseBubble>
 
-            {/* Editor In-Chat cuando se está editando */}
-            {isEditing && (
-              <div style={{ paddingLeft: '16px', paddingRight: '16px', width: '100%' }}>
-                <UnifiedNodeEditor
-                  initialData={editorInitialData}
-                  isCreation={false}
-                  nodeTitle={`Editar Nodo / Mensaje (${msg.id.slice(0, 6)}...)`}
-                  onSave={onSaveEditor}
-                  onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
-                  onCancel={onCancelEditor}
-                />
-              </div>
-            )}
-
-            {/* Burbuja Dedicada para "Crear Nuevo Mensaje" (Mismo sistema de burbujas del chat) */}
+            {/* Burbuja Dedicada para "Crear Nuevo Mensaje" */}
             {!isUser && (
               <BaseBubble
                 isUser={false}
@@ -110,18 +106,20 @@ export default function ChatStudioContainer({
                 isCreating={isCreatingChild}
               >
                 {isCreatingChild && (
-                  <UnifiedNodeEditor
-                    initialData={{
-                      responseMessage: 'Escribe el texto del nuevo mensaje...',
-                      contentType: 'text_plain',
-                      options: []
-                    }}
-                    isCreation={true}
-                    nodeTitle="Crear Nuevo Mensaje"
-                    hasExistingMenu={Boolean(msg.options && msg.options.length > 0)}
-                    onSave={onSaveEditor}
-                    onCancel={onCancelEditor}
-                  />
+                  <div style={{ padding: '8px 0', width: '100%' }}>
+                    <UnifiedNodeEditor
+                      initialData={{
+                        responseMessage: 'Escribe el texto del nuevo mensaje...',
+                        contentType: 'text_plain',
+                        options: []
+                      }}
+                      isCreation={true}
+                      nodeTitle="Crear Nuevo Mensaje"
+                      hasExistingMenu={Boolean(msg.options && msg.options.length > 0)}
+                      onSave={onSaveEditor}
+                      onCancel={onCancelEditor}
+                    />
+                  </div>
                 )}
               </BaseBubble>
             )}
