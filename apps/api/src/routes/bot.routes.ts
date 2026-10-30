@@ -352,17 +352,17 @@ export async function botRoutes(server: FastifyInstance) {
     const phoneNumber = '+54911' + Math.floor(10000000 + Math.random() * 90000000);
     const botId = `bot_anon_${Date.now()}`;
 
-    // Crear automáticamente el perfil de bot anónimo con bienvenida, menú y manejo de errores en la base de datos
+    // Crear automáticamente el perfil de bot anónimo unificado con nodo raíz estándar
     const profile = await BotProfileService.createProfile({
       botId,
       phoneNumber,
-      name: 'Asistente Virtual Automático',
+      name: 'Asistente Virtual',
       description: 'Bot generado automáticamente para sesión anónima',
       type: 'custom',
       isPublic: true,
       isActive: true,
-      welcomeMessage: '¡Hola! Bienvenido a nuestro asistente virtual. Elige una opción:',
-      invalidOptionMessage: '⚠️ Opción incorrecta. Por favor, selecciona una opción válida del menú o escribe "0" para volver.',
+      welcomeMessage: 'Elige una opción:',
+      invalidOptionMessage: 'Opción incorrecta. Por favor, selecciona una opción válida.',
       menuOptions: [
         { label: 'Ver Catálogo y Stock', option: '1', actionKey: 'stock.check' },
         { label: 'Hablar con Asesor Humano', option: '2', actionKey: 'support.human' },

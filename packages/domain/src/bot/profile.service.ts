@@ -288,34 +288,37 @@ export class BotProfileService {
       });
     }
 
-    // Si vienen menuOptions, crear flujo de menú raíz
-    if (validated.menuOptions && validated.menuOptions.length > 0) {
-      const welcomeMsg = validated.welcomeMessage || '¡Hola! Bienvenido a nuestro asistente.';
-      const existingFlow = await prisma.botFlow.findFirst({
-        where: { botProfileId: profile.id, triggerKeyword: 'menu' }
-      });
+    // Asegurar siempre un nodo BotFlow estándar unificado (igual que el resto de nodos)
+    const existingRootFlow = await prisma.botFlow.findFirst({
+      where: { botProfileId: profile.id, parentId: null }
+    });
 
-      if (!existingFlow) {
-        await prisma.botFlow.create({
-          data: {
-            botProfileId: profile.id,
-            name: `Menú Principal ${profile.name}`,
-            triggerKeyword: 'menu',
-            flowType: 'menu',
-            content: JSON.stringify(validated.menuOptions),
-            responseMessage: welcomeMsg,
-            isActive: true,
-          }
-        });
-      } else {
-        await prisma.botFlow.update({
-          where: { id: existingFlow.id },
-          data: {
-            content: JSON.stringify(validated.menuOptions),
-            responseMessage: welcomeMsg,
-          }
-        });
-      }
+    const rootContent = validated.menuOptions && validated.menuOptions.length > 0 ? JSON.stringify(validated.menuOptions) : '[]';
+    const rootMessage = '¡Hola! Selecciona una opción:';
+
+    if (!existingRootFlow) {
+      await prisma.botFlow.create({
+        data: {
+          botProfileId: profile.id,
+          name: profile.name,
+          triggerKeyword: 'menu',
+          flowType: validated.menuOptions && validated.menuOptions.length > 0 ? 'menu' : 'conversation',
+          contentType: validated.menuOptions && validated.menuOptions.length > 0 ? 'text_menu' : 'text_plain',
+          content: rootContent,
+          responseMessage: rootMessage,
+          isActive: true,
+          parentId: null
+        }
+      });
+    } else if (validated.menuOptions && validated.menuOptions.length > 0) {
+      await prisma.botFlow.update({
+        where: { id: existingRootFlow.id },
+        data: {
+          content: rootContent,
+          contentType: 'text_menu',
+          flowType: 'menu'
+        }
+      });
     }
 
     return profile;

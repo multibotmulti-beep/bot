@@ -123,7 +123,6 @@ export class ChatService {
           type: 'custom',
           isPublic: true,
           isActive: true,
-          welcomeMessage: 'Acá va el título / texto de bienvenida',
           invalidOptionMessage: '⚠️ Opción incorrecta. Por favor, elige una opción válida del menú o escribe "0" para volver.',
           menuOptions: []
         });
@@ -132,14 +131,12 @@ export class ChatService {
       }
 
       const targetBotId = profile?.botId || botId || cleanPhone;
-      let welcomeText = (profile as any)?.welcomeMessage || '¡Hola! Bienvenido al asistente virtual.';
+      let welcomeText = '¡Hola! Bienvenido al asistente virtual.';
       
-      logger.info({ targetBotId, profileFound: !!profile, welcomeText }, 'getMessagesByPhone: Perfil y mensaje de bienvenida base obtenidos');
-
       const rootFlow = profile?.flows?.find(f => f.isActive && !f.parentId);
       if (rootFlow && rootFlow.responseMessage) {
         welcomeText = rootFlow.responseMessage.trim();
-        logger.info({ targetBotId, welcomeTextLength: welcomeText.length }, 'getMessagesByPhone: Usando responseMessage del flujo raíz limpio');
+        logger.info({ targetBotId, welcomeTextLength: welcomeText.length }, 'getMessagesByPhone: Usando responseMessage del nodo raíz unificado');
       }
 
       console.log(`[ChatService.getMessagesByPhone] Mensaje bienvenida final a guardar:`, welcomeText);

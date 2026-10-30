@@ -220,9 +220,15 @@ export default function BotChatSimulatorPanel() {
     { label: 'Opción 2', actionKey: 'support.human' }
   ]);
 
-  const handleSaveChainedNode = async (parentId: string) => {
+  const handleSaveChainedNode = async (parentId: string, payloadData?: any) => {
     if (!activeBot) return;
-    if (!newChainedText.trim()) {
+    const textToUse = payloadData?.responseMessage || newChainedText;
+    const typeToUse = payloadData?.contentType || newChainedType;
+    const mediaToUse = payloadData?.mediaUrl !== undefined ? payloadData.mediaUrl : newChainedMediaUrl;
+    const actionToUse = payloadData?.actionKey || newChainedActionKey;
+    const optionsToUse = payloadData?.menuOptions || newChainedOptions;
+
+    if (!textToUse.trim()) {
       setEditStatus('⚠️ Validación: El texto del mensaje es obligatorio.');
       return;
     }
@@ -233,15 +239,16 @@ export default function BotChatSimulatorPanel() {
         parentId,
         name: `Hijo ${newChainedKeyword}`,
         triggerKeyword: newChainedKeyword.trim(),
-        contentType: newChainedType,
-        mediaUrl: (newChainedType === 'media_interactive' || newChainedType === 'image_menu') ? newChainedMediaUrl : null,
-        actionKey: (newChainedType === 'single_function' || newChainedType === 'media_interactive') ? newChainedActionKey : null,
-        flowType: newChainedType.includes('menu') ? 'menu' : 'conversation',
-        responseMessage: newChainedText,
-        content: (newChainedType === 'text_menu' || newChainedType === 'image_menu') ? [
-          { label: 'Opción 1', option: '1', actionKey: 'stock.check' },
-          { label: 'Opción 2', option: '2', actionKey: 'support.human' }
-        ] : [],
+        contentType: typeToUse,
+        mediaUrl: (typeToUse === 'media_interactive' || typeToUse === 'image_menu') ? mediaToUse : null,
+        actionKey: (typeToUse === 'single_function' || typeToUse === 'media_interactive') ? actionToUse : null,
+        flowType: typeToUse.includes('menu') ? 'menu' : 'conversation',
+        responseMessage: textToUse,
+        content: (typeToUse === 'text_menu' || typeToUse === 'image_menu') ? (optionsToUse.map((o: any, idx: number) => ({
+          option: o.number || o.option || String(idx + 1),
+          label: o.label,
+          actionKey: o.actionKey || 'custom.advanced_flow'
+        }))) : [],
         isActive: true
       };
 
@@ -264,25 +271,31 @@ export default function BotChatSimulatorPanel() {
     }
   };
 
-  const handleSaveMessageEdit = async (msgId: string) => {
+  const handleSaveMessageEdit = async (msgId: string, payloadData?: any) => {
     if (!activeBot) return;
-    if (!editActionKey && !editMsgText.trim()) {
+    const textToUse = payloadData?.responseMessage !== undefined ? payloadData.responseMessage : editMsgText;
+    const typeToUse = payloadData?.contentType || editContentType;
+    const mediaToUse = payloadData?.mediaUrl !== undefined ? payloadData.mediaUrl : editMediaUrl;
+    const actionToUse = payloadData?.actionKey || editActionKey;
+    const optionsToUse = payloadData?.menuOptions || activeBot.options || [];
+
+    if (!actionToUse && !textToUse.trim()) {
       setEditStatus('⚠️ Validación: Para menús libres o nodos sin función, debes configurar al menos un mensaje de texto mínimo.');
       return;
     }
     setEditStatus('Guardando en DB...');
     try {
       const welcomePayload = {
-        responseMessage: editMsgText,
-        contentType: editContentType,
-        mediaUrl: (editContentType === 'media_interactive' || editContentType === 'image_menu') ? editMediaUrl : null,
-        actionKey: (editContentType === 'single_function' || editContentType === 'media_interactive') ? editActionKey : null,
-        menuOptions: (editContentType === 'text_menu' || editContentType === 'image_menu') ? (activeBot.options || []) : []
+        responseMessage: textToUse,
+        contentType: typeToUse,
+        mediaUrl: (typeToUse === 'media_interactive' || typeToUse === 'image_menu') ? mediaToUse : null,
+        actionKey: (typeToUse === 'single_function' || typeToUse === 'media_interactive') ? actionToUse : null,
+        menuOptions: (typeToUse === 'text_menu' || typeToUse === 'image_menu') ? optionsToUse : []
       };
       const configPayload = {
         botId: activeBot.botId,
-        actionKey: editActionKey,
-        config: { flowTitle: activeBot.name + ' - Flujo Dinámico', welcomeMessage: editMsgText }
+        actionKey: actionToUse,
+        config: { flowTitle: activeBot.name + ' - Flujo Dinámico', welcomeMessage: textToUse }
       };
 
       const botKey = activeBot.id || activeBot.botId;
@@ -301,7 +314,7 @@ export default function BotChatSimulatorPanel() {
       console.log(`[RAW FRONTEND POST /function-configs RESPONSE]:`, JSON.stringify(resConfig, null, 2));
 
       setEditStatus('✅ Guardado');
-      addDbLog(`Mensaje y función (${editActionKey}) actualizados en base de datos para bot ${activeBot.botId}`);
+      addDbLog(`Mensaje y función (${actionToUse}) actualizados en base de datos para bot ${activeBot.botId}`);
 
       // Refrescar en tiempo real desde la DB
       const updatedProfiles = await BotApiClient.getProfiles();
@@ -681,36 +694,29 @@ export default function BotChatSimulatorPanel() {
         const treeRes = await apiFetch(`/bot/profiles/${uuidToUse}/tree`).catch(() => null);
         const rootNodes = treeRes?.data?.rootNodes || [];
 
-        const flattenNodes = (nodes: any[]): ChatMessage[] => {
-          let list: ChatMessage[] = [];
-          for (const node of nodes) {
-            let parsedOpts = [];
-            try {
-              parsedOpts = typeof node.options === 'string' ? JSON.parse(node.options) : (node.options || []);
-            } catch {
-              parsedOpts = [];
-            }
-            list.push({
-              id: node.id,
-              senderPhone: phone,
-              botId: botId || 'admin',
-              direction: 'incoming',
-              message: node.responseMessage || node.name,
-              createdAt: node.metadata?.createdAt || new Date().toISOString(),
-              options: parsedOpts.length > 0 ? parsedOpts.map((o: any, idx: number) => ({
-                number: o.number || o.option || String(idx + 1),
-                label: o.label || o.customResponse || o.option,
-                actionKey: o.actionKey
-              })) : undefined
-            });
-            if (node.children && Array.isArray(node.children) && node.children.length > 0) {
-              list = list.concat(flattenNodes(node.children));
-            }
+        if (rootNodes.length > 0) {
+          const rootNode = rootNodes[0];
+          let parsedOpts = [];
+          try {
+            parsedOpts = typeof rootNode.options === 'string' ? JSON.parse(rootNode.options) : (rootNode.options || []);
+          } catch {
+            parsedOpts = [];
           }
-          return list;
-        };
-
-        flowMessages = flattenNodes(rootNodes);
+          flowMessages.push({
+            id: rootNode.id,
+            senderPhone: phone,
+            botId: botId || 'admin',
+            direction: 'incoming',
+            message: rootNode.responseMessage || rootNode.name,
+            createdAt: rootNode.metadata?.createdAt || new Date().toISOString(),
+            contentType: rootNode.messageType || rootNode.contentType || 'text_menu',
+            options: parsedOpts.length > 0 ? parsedOpts.map((o: any, idx: number) => ({
+              number: o.number || o.option || String(idx + 1),
+              label: o.label || o.customResponse || o.option,
+              actionKey: o.actionKey
+            })) : undefined
+          });
+        }
       }
 
       if (flowMessages.length === 0) {
@@ -734,7 +740,13 @@ export default function BotChatSimulatorPanel() {
         const sortedHistory = [...histArray].sort(
           (a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
         );
-        finalMessages = [...flowMessages, ...sortedHistory];
+        const filteredHistory = sortedHistory.filter((msg: any) => {
+          if (msg.direction === 'incoming' && flowMessages.length > 0) {
+            if (msg.message === flowMessages[0].message) return false;
+          }
+          return true;
+        });
+        finalMessages = [...flowMessages, ...filteredHistory];
       }
 
       setMessages(finalMessages);
@@ -1038,20 +1050,9 @@ export default function BotChatSimulatorPanel() {
             }}
             onSaveEditor={async (payload) => {
               if (editingMsgId) {
-                setEditMsgText(payload.responseMessage);
-                setEditContentType(payload.contentType);
-                setEditMediaUrl(payload.mediaUrl || '');
-                setEditActionKey(payload.actionKey || 'custom.advanced_flow');
-                await handleSaveMessageEdit(editingMsgId);
+                await handleSaveMessageEdit(editingMsgId, payload);
               } else if (chainedCreatorParentId) {
-                setNewChainedText(payload.responseMessage);
-                setNewChainedType(payload.contentType as any);
-                setNewChainedMediaUrl(payload.mediaUrl || '');
-                setNewChainedActionKey(payload.actionKey || 'custom.advanced_flow');
-                if (payload.menuOptions) {
-                  setNewChainedOptions(payload.menuOptions.map((o: any) => ({ label: o.label, actionKey: o.actionKey || 'custom.advanced_flow' })));
-                }
-                await handleSaveChainedNode(chainedCreatorParentId);
+                await handleSaveChainedNode(chainedCreatorParentId, payload);
               }
             }}
             onDeleteMessage={handleDeleteMessage}
