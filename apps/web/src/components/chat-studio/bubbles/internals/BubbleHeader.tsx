@@ -6,7 +6,6 @@ import Icon from '@/components/Icon';
 export interface BubbleHeaderProps {
   isUser: boolean;
   botName?: string;
-  isEditing?: boolean;
   isCreatorBubble?: boolean;
   contentType?: string;
   onEdit?: () => void;
@@ -55,51 +54,26 @@ const SvgMap = {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
     </svg>
-  ),
-  text: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-      <polyline points="14 2 14 8 20 8"></polyline>
-      <line x1="16" y1="13" x2="8" y2="13"></line>
-      <line x1="16" y1="17" x2="8" y2="17"></line>
-    </svg>
   )
 };
 
 export default function BubbleHeader({
   isUser,
   botName = 'Asistente Bot',
-  isEditing = false,
   isCreatorBubble = false,
   contentType = 'text_menu',
   onEdit
 }: BubbleHeaderProps) {
-  // Determinación flexible del título y el SVG según el estado y herramienta activa
   let title = botName;
   let IconComponent = SvgMap.bot;
 
   if (isUser) {
     title = 'Usuario';
     IconComponent = SvgMap.user;
-  } else if (isEditing) {
-    title = 'Editor de Nodo Activo';
-    if (contentType === 'text_menu' || contentType === 'image_menu') {
-      title = 'Editor de Menú Interactivo';
-      IconComponent = SvgMap.menu;
-    } else if (contentType === 'media_interactive') {
-      title = 'Editor de Multimedia';
-      IconComponent = SvgMap.media;
-    } else if (contentType === 'single_function') {
-      title = 'Editor de Función de Sistema';
-      IconComponent = SvgMap.function;
-    } else {
-      IconComponent = SvgMap.text;
-    }
   } else if (isCreatorBubble) {
     title = 'Creador de Mensaje';
     IconComponent = SvgMap.bot;
   } else {
-    // Modo visualización normal según el tipo de contenido
     if (contentType === 'text_menu' || contentType === 'image_menu') {
       title = `${botName} (Menú)`;
       IconComponent = SvgMap.menu;
@@ -133,7 +107,7 @@ export default function BubbleHeader({
         <span>{title}</span>
       </div>
 
-      {!isUser && !isCreatorBubble && onEdit && !isEditing && (
+      {!isUser && !isCreatorBubble && onEdit && (
         <button
           type="button"
           onClick={onEdit}

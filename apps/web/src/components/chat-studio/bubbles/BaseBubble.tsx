@@ -47,15 +47,17 @@ export default function BaseBubble({
           border: 'none'
         }}
       >
-        {/* Cabecera Flexible y Reutilizable con SVG Variable */}
-        <BubbleHeader
-          isUser={isUser}
-          botName={botName}
-          isEditing={isEditing}
-          isCreatorBubble={isCreatorBubble}
-          contentType={message?.contentType}
-          onEdit={onEdit}
-        />
+        {/* Cabecera solo en modo visualización normal (en edición mandan los iconos SVG y cerrar arriba de todo) */}
+        {!isEditing && (
+          <BubbleHeader
+            isUser={isUser}
+            botName={botName}
+            isEditing={isEditing}
+            isCreatorBubble={isCreatorBubble}
+            contentType={message?.contentType}
+            onEdit={onEdit}
+          />
+        )}
 
         {/* Contenido de Edición Interna Encapsulado */}
         {isEditing && message ? (

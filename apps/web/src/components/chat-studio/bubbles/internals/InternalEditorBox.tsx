@@ -21,7 +21,7 @@ export interface InternalEditorBoxProps {
   onCancel: () => void;
 }
 
-// Iconos SVG puros para la barra superior de herramientas
+// Iconos SVG puros para la barra superior de herramientas y cabecera
 const ToolIcons = {
   text: () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -54,7 +54,7 @@ const ToolIcons = {
     </svg>
   ),
   close: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="6" x2="6" y2="18"></line>
       <line x1="6" y1="6" x2="18" y2="18"></line>
     </svg>
@@ -122,6 +122,24 @@ export default function InternalEditorBox({
   const isMediaType = contentType === 'media_interactive' || contentType === 'image_menu';
   const isFunctionType = contentType === 'single_function' || contentType === 'media_interactive';
 
+  // Título e Icono SVG flexible según la herramienta activa
+  let headerTitle = 'Editor de Nodo';
+  let HeaderIcon = ToolIcons.text;
+
+  if (contentType === 'text_menu' || contentType === 'image_menu') {
+    headerTitle = 'Editor de Menú Interactivo';
+    HeaderIcon = ToolIcons.menu;
+  } else if (contentType === 'media_interactive') {
+    headerTitle = 'Editor de Multimedia';
+    HeaderIcon = ToolIcons.media;
+  } else if (contentType === 'single_function') {
+    headerTitle = 'Editor de Función de Sistema';
+    HeaderIcon = ToolIcons.function;
+  } else {
+    headerTitle = 'Editor de Texto Plano';
+    HeaderIcon = ToolIcons.text;
+  }
+
   return (
     <div
       style={{
@@ -140,105 +158,115 @@ export default function InternalEditorBox({
         fontSize: '0.86rem'
       }}
     >
-      {/* BARRA SUPERIOR DE HERRAMIENTAS CON ICONOS SVG (SIN TÍTULO DE TEXTO) */}
+      <style>{`
+        .editor-tool-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          gap: 2px;
+          padding: 6px 8px;
+          border-radius: 6px;
+          border: none;
+          cursor: pointer;
+          font-size: 0.68rem;
+          font-weight: 600;
+          transition: all 0.2s;
+          flex: 1;
+        }
+        .editor-option-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          background-color: #f8fafc;
+          padding: 6px;
+          border-radius: 6px;
+        }
+        @media (min-width: 768px) {
+          .editor-tool-btn {
+            flex-direction: row;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            font-size: 0.75rem;
+          }
+          .editor-option-row {
+            flex-direction: row;
+            gap: 6px;
+            padding: 4px;
+            background-color: transparent;
+          }
+        }
+      `}</style>
+
+      {/* 1. CABECERA SUPERIOR: TÍTULO FLEXIBLE CON SVG Y BOTÓN DE CERRAR AL LADO */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '4px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
-          <button
-            type="button"
-            onClick={() => setContentType('text_plain')}
-            title="Texto Plano"
-            style={{
-              background: contentType === 'text_plain' ? '#00a884' : 'transparent',
-              color: contentType === 'text_plain' ? '#ffffff' : '#475569',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              transition: 'all 0.2s'
-            }}
-          >
-            <ToolIcons.text /> Texto
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setContentType('text_menu')}
-            title="Menú Interactivo"
-            style={{
-              background: contentType === 'text_menu' ? '#00a884' : 'transparent',
-              color: contentType === 'text_menu' ? '#ffffff' : '#475569',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              transition: 'all 0.2s'
-            }}
-          >
-            <ToolIcons.menu /> Menú
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setContentType('media_interactive')}
-            title="Multimedia / Imagen"
-            style={{
-              background: contentType === 'media_interactive' ? '#00a884' : 'transparent',
-              color: contentType === 'media_interactive' ? '#ffffff' : '#475569',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              transition: 'all 0.2s'
-            }}
-          >
-            <ToolIcons.media /> Multimedia
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setContentType('single_function')}
-            title="Función del Sistema"
-            style={{
-              background: contentType === 'single_function' ? '#00a884' : 'transparent',
-              color: contentType === 'single_function' ? '#ffffff' : '#475569',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              transition: 'all 0.2s'
-            }}
-          >
-            <ToolIcons.function /> Función
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#00a884', fontWeight: 700, fontSize: '0.9rem' }}>
+          <HeaderIcon />
+          <span>{headerTitle}</span>
         </div>
-
         <button
           type="button"
           onClick={onCancel}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: '#64748b', display: 'flex', alignItems: 'center' }}
-          title="Cerrar"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', padding: '4px' }}
+          title="Cerrar editor"
         >
           <ToolIcons.close />
+        </button>
+      </div>
+
+      {/* 2. BARRA DE HERRAMIENTAS RESPONSIVE (VERTICAL EN MÓVIL, HORIZONTAL EN PC) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => setContentType('text_plain')}
+          title="Texto Plano"
+          className="editor-tool-btn"
+          style={{
+            background: contentType === 'text_plain' ? '#00a884' : 'transparent',
+            color: contentType === 'text_plain' ? '#ffffff' : '#475569',
+          }}
+        >
+          <ToolIcons.text /> <span>Texto</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setContentType('text_menu')}
+          title="Menú Interactivo"
+          className="editor-tool-btn"
+          style={{
+            background: contentType === 'text_menu' ? '#00a884' : 'transparent',
+            color: contentType === 'text_menu' ? '#ffffff' : '#475569',
+          }}
+        >
+          <ToolIcons.menu /> <span>Menú</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setContentType('media_interactive')}
+          title="Multimedia / Imagen"
+          className="editor-tool-btn"
+          style={{
+            background: contentType === 'media_interactive' ? '#00a884' : 'transparent',
+            color: contentType === 'media_interactive' ? '#ffffff' : '#475569',
+          }}
+        >
+          <ToolIcons.media /> <span>Multimedia</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setContentType('single_function')}
+          title="Función del Sistema"
+          className="editor-tool-btn"
+          style={{
+            background: contentType === 'single_function' ? '#00a884' : 'transparent',
+            color: contentType === 'single_function' ? '#ffffff' : '#475569',
+          }}
+        >
+          <ToolIcons.function /> <span>Función</span>
         </button>
       </div>
 
@@ -352,24 +380,25 @@ export default function InternalEditorBox({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
             {menuOptions.map((opt, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center', backgroundColor: '#f8fafc', padding: '4px', borderRadius: '6px' }}>
+              <div key={idx} className="editor-option-row" style={{ alignItems: 'center' }}>
                 <input
                   type="text"
                   value={opt.number || String(idx + 1)}
                   onChange={(e) => handleOptionChange(idx, 'number', e.target.value)}
-                  style={{ width: '36px', padding: '6px', textAlign: 'center', borderRadius: '4px', border: 'none', backgroundColor: '#f1f5f9', fontSize: '0.8rem', outline: 'none' }}
+                  style={{ width: '100%', maxWidth: '45px', padding: '6px', textAlign: 'center', borderRadius: '4px', border: 'none', backgroundColor: '#f1f5f9', fontSize: '0.8rem', outline: 'none' }}
                 />
                 <input
                   type="text"
                   value={opt.label}
                   onChange={(e) => handleOptionChange(idx, 'label', e.target.value)}
                   placeholder="Texto de opción"
-                  style={{ flex: 1, padding: '6px 8px', borderRadius: '4px', border: 'none', backgroundColor: '#f1f5f9', fontSize: '0.8rem', outline: 'none' }}
+                  style={{ flex: 1, width: '100%', padding: '6px 8px', borderRadius: '4px', border: 'none', backgroundColor: '#f1f5f9', fontSize: '0.8rem', outline: 'none' }}
                 />
                 <select
                   value={opt.actionKey || 'custom.advanced_flow'}
+                  onChange={(e) => handleOptionKeyChange(idx, e.target.value)} // wait, handleOptionChange
                   onChange={(e) => handleOptionChange(idx, 'actionKey', e.target.value)}
-                  style={{ width: '110px', padding: '6px', borderRadius: '4px', border: 'none', backgroundColor: '#f1f5f9', fontSize: '0.75rem', outline: 'none' }}
+                  style={{ width: '100%', maxWidth: '120px', padding: '6px', borderRadius: '4px', border: 'none', backgroundColor: '#f1f5f9', fontSize: '0.75rem', outline: 'none' }}
                 >
                   <option value="custom.advanced_flow">Flujo</option>
                   <option value="stock.check">Stock</option>
@@ -380,7 +409,7 @@ export default function InternalEditorBox({
                 <button
                   type="button"
                   onClick={() => handleRemoveOption(idx)}
-                  style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
                   title="Eliminar"
                 >
                   <ToolIcons.close />
@@ -392,7 +421,7 @@ export default function InternalEditorBox({
       )}
 
       {/* Botones de Guardar / Cancelar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={onCancel}
